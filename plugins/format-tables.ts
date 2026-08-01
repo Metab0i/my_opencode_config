@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode-ai/plugin"
 
 const MIN_COL_WIDTH = 3
-const MAX_COL_WIDTH = 30
+const MAX_COL_WIDTH = 35
 
 export const FormatTablesPlugin: Plugin = async () => {
   return {
@@ -273,7 +273,9 @@ function renderCodeBlockTable(rows: string[][], numCols: number, style: { leadin
     row.map((cell, c) => wrapWords(cell, widths[c])),
   )
 
-  const out: string[] = ["```"]
+  const border = () => "+" + widths.map((w) => "-".repeat(w + 2)).join("+") + "+"
+
+  const out: string[] = ["```", border()]
   wrappedCells.forEach((row, rowIdx) => {
     const height = Math.max(...row.map((lines) => lines.length))
     for (let line = 0; line < height; line++) {
@@ -288,6 +290,6 @@ function renderCodeBlockTable(rows: string[][], numCols: number, style: { leadin
       out.push("|" + dash.join("|") + "|")
     }
   })
-  out.push("```")
+  out.push(border(), "```")
   return out
 }
