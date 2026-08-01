@@ -1,0 +1,151 @@
+{
+  "selection_rules": [
+    "Tier 1 first: Always start with Tier 1 (primary) sources for the identified domain.",
+    "Tier 2 for cross-reference: Verify Tier 1 claims against 2-3 Tier 2 sources.",
+    "Tier 3 for supplementary: Use only when Tier 1/2 are insufficient or for additional context.",
+    "Wikipedia is never Tier 1: Supplementary only, must always be scored via the wiki-quality-assessment skill.",
+    "Paywalled sources: Use abstracts/summaries for verification but do not treat paywalled content as primary evidence.",
+    "No domain match: If the question doesn't fit a listed domain, use the General domain. If even that is insufficient, discover new sources, use them, then prompt the user to consider adding them to this catalogue."
+  ],
+  "domains": {
+    "Science & Academia": {
+      "tier1": [
+        {"name": "Semantic Scholar", "url": "https://www.semanticscholar.org", "access": "Free API", "notes": "214M+ papers, AI-powered relevance, free REST API", "academic_search_engine": true},
+        {"name": "PubMed", "url": "https://pubmed.ncbi.nlm.nih.gov", "access": "Free API (E-utilities)", "notes": "40M+ biomedical citations, NLM-curated, MeSH taxonomy", "academic_search_engine": true},
+        {"name": "arXiv", "url": "https://arxiv.org", "access": "Free API", "notes": "Preprints (not peer-reviewed) for physics, math, CS, stats", "academic_search_engine": true},
+        {"name": "DOAJ", "url": "https://doaj.org", "access": "Free API", "notes": "Curated open-access journals, vetted for legitimacy", "academic_search_engine": true},
+        {"name": "Europe PMC", "url": "https://europepmc.org", "access": "Free API", "notes": "OA full-text biomedical/life sciences, includes bioRxiv/medRxiv preprints", "academic_search_engine": true}
+      ],
+      "tier2": [
+        {"name": "Wikidata", "url": "https://www.wikidata.org", "access": "Free SPARQL/API", "notes": "Structured knowledge, 122M+ entities, CC0"},
+        {"name": "Wolfram Alpha", "url": "https://www.wolframalpha.com", "access": "Free web", "notes": "Computational verification of quantitative claims"},
+        {"name": "NASA Data Portal", "url": "https://data.nasa.gov", "access": "Free API (CKAN)", "notes": "Earth/space science, climate data"},
+        {"name": "Scholarpedia", "url": "http://www.scholarpedia.org", "access": "Free web", "notes": "Expert-authored, peer-reviewed, narrow coverage"}
+      ],
+      "tier3": [
+        {"name": "JSTOR", "url": "https://www.jstor.org", "access": "Paywall (6 free/mo)", "notes": "Rigorous journal selection, limited free access"},
+        {"name": "Stanford Encyclopedia of Philosophy", "url": "https://plato.stanford.edu", "access": "Free web", "notes": "Expert-authored, Stanford/NEH/NSF backed"},
+        {"name": "Wikipedia", "url": "https://en.wikipedia.org", "access": "Free web", "notes": "Must run quality assessment; never primary"}
+      ]
+    },
+    "Medicine & Health": {
+      "tier1": [
+        {"name": "PubMed", "url": "https://pubmed.ncbi.nlm.nih.gov", "access": "Free API (E-utilities)", "notes": "40M+ biomedical citations, NLM-curated", "academic_search_engine": true},
+        {"name": "Cochrane Library", "url": "https://www.cochranelibrary.com", "access": "Abstracts free", "notes": "Gold standard systematic reviews, paywalled full text"},
+        {"name": "MedlinePlus", "url": "https://medlineplus.gov", "access": "Free web + API", "notes": "NLM/NIH service, evidence-based, no ads"},
+        {"name": "Europe PMC", "url": "https://europepmc.org", "access": "Free API", "notes": "OA full-text biomedical, includes bioRxiv/medRxiv preprints", "academic_search_engine": true}
+      ],
+      "tier2": [
+        {"name": "WHO Data", "url": "https://www.who.int/data", "access": "Free web", "notes": "UN health statistics, member-state reporting"},
+        {"name": "Mayo Clinic", "url": "https://www.mayoclinic.org", "access": "Free web", "notes": "Physician-reviewed, commercial institution"},
+        {"name": "Wikidata", "url": "https://www.wikidata.org", "access": "Free SPARQL/API", "notes": "Structured medical knowledge with source links"}
+      ],
+      "tier3": [
+        {"name": "Wikipedia", "url": "https://en.wikipedia.org", "access": "Free web", "notes": "Must run quality assessment"},
+        {"name": "Snopes (health claims)", "url": "https://www.snopes.com", "access": "Free web", "notes": "IFCN-certified fact-checking"}
+      ]
+    },
+    "Law & Legal": {
+      "tier1": [
+        {"name": "Cornell LII", "url": "https://www.law.cornell.edu", "access": "Free web", "notes": "U.S. Constitution, Code, CFR, SCOTUS opinions"},
+        {"name": "SCOTUSblog", "url": "https://www.scotusblog.com", "access": "Free web + RSS", "notes": "Authoritative Supreme Court tracking"}
+      ],
+      "tier2": [
+        {"name": "Wikidata", "url": "https://www.wikidata.org", "access": "Free SPARQL/API", "notes": "Structured legal knowledge"},
+        {"name": "Internet Archive", "url": "https://archive.org", "access": "Free API", "notes": "Historical legal documents, web history"}
+      ],
+      "tier3": [
+        {"name": "Wikipedia", "url": "https://en.wikipedia.org", "access": "Free web", "notes": "Must run quality assessment"}
+      ]
+    },
+    "Statistics, Economics & Data": {
+      "tier1": [
+        {"name": "World Bank Open Data", "url": "https://data.worldbank.org", "access": "Free API", "notes": "189 countries, development indicators"},
+        {"name": "OECD Data", "url": "https://data.oecd.org", "access": "Free API", "notes": "38 member countries, rigorous methodology"},
+        {"name": "U.S. Census Bureau", "url": "https://www.census.gov", "access": "Free API", "notes": "Official U.S. demographic/economic statistics"},
+        {"name": "Bureau of Labor Statistics", "url": "https://www.bls.gov", "access": "Free API", "notes": "Employment, inflation, wages, productivity"}
+      ],
+      "tier2": [
+        {"name": "Wikidata", "url": "https://www.wikidata.org", "access": "Free SPARQL/API", "notes": "Structured economic data"},
+        {"name": "Wolfram Alpha", "url": "https://www.wolframalpha.com", "access": "Free web", "notes": "Computational verification"},
+        {"name": "WHO Data", "url": "https://www.who.int/data", "access": "Free web", "notes": "Global health statistics"},
+        {"name": "NASA Data Portal", "url": "https://data.nasa.gov", "access": "Free API (CKAN)", "notes": "Climate and environmental data"}
+      ],
+      "tier3": [
+        {"name": "Wikipedia", "url": "https://en.wikipedia.org", "access": "Free web", "notes": "Must run quality assessment"},
+        {"name": "Reuters (economic news)", "url": "https://www.reuters.com", "access": "Partially paywalled", "notes": "IFCN signatory, wire-service neutrality"}
+      ]
+    },
+    "News & Current Events": {
+      "tier1": [
+        {"name": "Reuters", "url": "https://www.reuters.com", "access": "Partially paywalled", "notes": "IFCN signatory, wire-service neutrality"},
+        {"name": "Associated Press", "url": "https://apnews.com", "access": "Partially paywalled", "notes": "Primary wire service, rigorous standards"}
+      ],
+      "tier2": [
+        {"name": "Snopes", "url": "https://www.snopes.com", "access": "Free web", "notes": "IFCN-certified, founded 1994, transparent methodology"},
+        {"name": "FactCheck.org", "url": "https://www.factcheck.org", "access": "Free web + RSS", "notes": "Annenberg/UPenn, nonpartisan, includes SciCheck"},
+        {"name": "PolitiFact", "url": "https://www.politifact.com", "access": "Free web", "notes": "Pulitzer-winning, Poynter Institute, IFCN-certified"},
+        {"name": "Full Fact (UK)", "url": "https://fullfact.org", "access": "Free web", "notes": "IFCN-certified UK charity"},
+        {"name": "Africa Check", "url": "https://africacheck.org", "access": "Free web", "notes": "IFCN-certified, pan-African coverage"}
+      ],
+      "tier3": [
+        {"name": "Wikipedia", "url": "https://en.wikipedia.org", "access": "Free web", "notes": "Must run quality assessment; may lag on breaking news"},
+        {"name": "Internet Archive", "url": "https://archive.org", "access": "Free API", "notes": "Verify historical web content claims"}
+      ]
+    },
+    "Philosophy & Humanities": {
+      "tier1": [
+        {"name": "Stanford Encyclopedia of Philosophy", "url": "https://plato.stanford.edu", "access": "Free web", "notes": "Expert-authored, peer-reviewed, dynamically updated"}
+      ],
+      "tier2": [
+        {"name": "Wikidata", "url": "https://www.wikidata.org", "access": "Free SPARQL/API", "notes": "Structured philosophical knowledge"},
+        {"name": "Scholarpedia", "url": "http://www.scholarpedia.org", "access": "Free web", "notes": "Expert-authored (limited philosophy coverage)"},
+        {"name": "JSTOR", "url": "https://www.jstor.org", "access": "Paywall (6 free/mo)", "notes": "Humanities journal archive"}
+      ],
+      "tier3": [
+        {"name": "Wikipedia", "url": "https://en.wikipedia.org", "access": "Free web", "notes": "Must run quality assessment"}
+      ]
+    },
+    "Technology & Web Development": {
+      "tier1": [
+        {"name": "MDN Web Docs", "url": "https://developer.mozilla.org", "access": "Free web + GitHub", "notes": "Definitive web platform reference, W3C-aligned"},
+        {"name": "NIST", "url": "https://www.nist.gov", "access": "Free web + APIs", "notes": "Standards, cybersecurity frameworks, technical constants"}
+      ],
+      "tier2": [
+        {"name": "arXiv (CS)", "url": "https://arxiv.org", "access": "Free API", "notes": "Cutting-edge CS research (preprints, not peer-reviewed)", "academic_search_engine": true},
+        {"name": "Wikidata", "url": "https://www.wikidata.org", "access": "Free SPARQL/API", "notes": "Structured tech knowledge"},
+        {"name": "Semantic Scholar", "url": "https://www.semanticscholar.org", "access": "Free API", "notes": "CS paper search and relevance", "academic_search_engine": true}
+      ],
+      "tier3": [
+        {"name": "Wikipedia", "url": "https://en.wikipedia.org", "access": "Free web", "notes": "Must run quality assessment"}
+      ]
+    },
+    "General / Unclassified": {
+      "tier1": [
+        {"name": "Wikidata", "url": "https://www.wikidata.org", "access": "Free SPARQL/API", "notes": "Structured knowledge across all domains"},
+        {"name": "Wolfram Alpha", "url": "https://www.wolframalpha.com", "access": "Free web", "notes": "Computational knowledge engine"},
+        {"name": "Semantic Scholar", "url": "https://www.semanticscholar.org", "access": "Free API", "notes": "Broad academic coverage", "academic_search_engine": true}
+      ],
+      "tier2": [
+        {"name": "Scholarpedia", "url": "http://www.scholarpedia.org", "access": "Free web", "notes": "Expert-authored, peer-reviewed"},
+        {"name": "Snopes", "url": "https://www.snopes.com", "access": "Free web", "notes": "Fact-checking for popular claims"},
+        {"name": "FactCheck.org", "url": "https://www.factcheck.org", "access": "Free web + RSS", "notes": "Nonpartisan verification"},
+        {"name": "Reuters", "url": "https://www.reuters.com", "access": "Partially paywalled", "notes": "Wire-service reporting"}
+      ],
+      "tier3": [
+        {"name": "Wikipedia", "url": "https://en.wikipedia.org", "access": "Free web", "notes": "Must run quality assessment"},
+        {"name": "Internet Archive", "url": "https://archive.org", "access": "Free API", "notes": "Historical verification"},
+        {"name": "DBpedia", "url": "https://www.dbpedia.org", "access": "Free SPARQL", "notes": "Structured Wikipedia extraction"}
+      ]
+    }
+  },
+  "new_source_discovery_protocol": {
+    "title": "New Source Discovery Protocol",
+    "steps": [
+      "Use websearch to find authoritative sources in the domain",
+      "Evaluate candidates against these criteria: institutional backing or peer-review process, editorial standards and corrections policy, author expertise and accountability, citation practices, independence from commercial/political bias",
+      "Use the discovered sources to answer the question",
+      "After answering, prompt the user: 'I discovered [source name] ([URL]) which appears to be a strong [domain] source with [reasons]. Would you like me to add it to the source catalogue for future use?'"
+    ]
+  }
+}
