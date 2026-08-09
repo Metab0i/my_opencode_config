@@ -1,0 +1,24 @@
+[2026-08-09T07:05:52Z] verify
+  cfg=/home/metab0i/.config/nvim luafile=/tmp/ep_verify_cwd.lua luaexpr_len=0 cwd=/tmp/ep_verifydir_13216 reason=adds -C/--cwd so tests can rely on a launch working directory
+  old=/home/agent0/.config/opencode/skills/neovim-test/scripts/nvim-test.sh -> FAIL : 
+  new=/home/agent0/.config/opencode/skills/neovim-test/scripts/nvim-test.candidate.sh -> PASS : 
+  result=BETTER (promote permitted)
+
+[2026-08-09T07:08:04Z] verify
+  cfg=/home/metab0i/.config/nvim luafile= luaexpr_len=57 cwd= timeout=20 verbose=0
+  reason=
+  old=/home/agent0/.config/opencode/skills/neovim-test/scripts/nvim-test.sh -> PASS : 
+  new=/home/agent0/.config/opencode/skills/neovim-test/scripts/nvim-test.candidate.sh -> PASS : 
+  cand=/home/agent0/.config/opencode/skills/neovim-test/scripts/nvim-test.candidate.sh
+  cand_hash=4bebe9c1ea8514213fb6c98e0d9960c96f9cc144e9475948be3be43f5cf13fa4
+  result=NOT_BETTER (promote blocked)
+
+[2026-08-09T07:08:22Z] verify
+  cfg=/home/metab0i/.config/nvim luafile= luaexpr_len=57 cwd= timeout= verbose=0
+  reason=isolating hash-tie
+  old=/home/agent0/.config/opencode/skills/neovim-test/scripts/nvim-test.sh -> PASS : 
+  new=/home/agent0/.config/opencode/skills/neovim-test/scripts/nvim-test.candidate.sh -> PASS : 
+  cand=/home/agent0/.config/opencode/skills/neovim-test/scripts/nvim-test.candidate.sh
+  cand_hash=74325247a87f670468b4f1d457b73fca5ccdb066591ad7f54aa8006d2b3cba0b
+  result=BETTER (promote permitted)
+

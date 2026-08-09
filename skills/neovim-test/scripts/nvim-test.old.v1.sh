@@ -22,14 +22,13 @@ LUA_EXPR=""
 LUA_FILE=""
 TIMEOUT=15
 VERBOSE=0
-ARG_CWD=""
 PASSTHROUGH=()
 
 usage() {
   cat <<'EOF'
 nvim-test.sh — headless Neovim config test harness
 
-Usage: nvim-test.sh -c CONFIG_DIR [-f LUA_FILE | -l LUA_EXPR] [-t TIMEOUT] [-v] [-C DIR] [-- NVIM_ARGS...]
+Usage: nvim-test.sh -c CONFIG_DIR [-f LUA_FILE | -l LUA_EXPR] [-t TIMEOUT] [-v] [-- NVIM_ARGS...]
 
 Options:
   -c, --config DIR   (required) Path to the nvim config directory to test.
@@ -37,8 +36,6 @@ Options:
   -l, --lua EXPR     Inline Lua expression to run as the test.
   -t, --timeout SECS Kill nvim after this many seconds (default 15).
   -v, --verbose      Include nvim stdout/stderr in the report.
-  -C, --cwd DIR      Launch nvim with this working directory (affects
-                     vim.fn.getcwd() at test start). Optional.
   --                 All args after this are passed to nvim verbatim.
   -h, --help         Show this help.
 
@@ -57,7 +54,6 @@ while [[ $# -gt 0 ]]; do
     -l|--lua)      LUA_EXPR="$2"; shift 2 ;;
     -t|--timeout)  TIMEOUT="$2"; shift 2 ;;
     -v|--verbose)  VERBOSE=1; shift ;;
-    -C|--cwd)      ARG_CWD="$2"; shift 2 ;;
     --)            shift; while [[ $# -gt 0 ]]; do PASSTHROUGH+=("$1"); shift; done ;;
     -h|--help)     usage; exit 0 ;;
     *) echo "nvim-test.sh: unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -85,14 +81,6 @@ fi
 if ! command -v nvim >/dev/null 2>&1; then
   echo "nvim-test.sh: nvim not found on PATH" >&2
   exit 3
-fi
-
-if [[ -n "$ARG_CWD" ]]; then
-  if [[ ! -d "$ARG_CWD" ]]; then
-    echo "nvim-test.sh: --cwd dir does not exist: $ARG_CWD" >&2
-    exit 2
-  fi
-  ARG_CWD="$(cd "$ARG_CWD" && pwd -P)"
 fi
 
 # Resolve the test body. The Lua runs AFTER the config loads (via a -c lua
@@ -138,11 +126,7 @@ ln -s "$(readlink -f "$CONFIG_DIR")" "$TMPHOME/.config/nvim"
 # --- Launch ----------------------------------------------------------------
 # Normal XDG discovery populates rtp so require() works. +qa! + timeout + the
 # trap guarantee the process exits. Keystroke-style tests must use vim.wait()
-# in-Lua since +qa! runs immediately after the -c lua body. If -C/--cwd was
-# given, cd there so vim.fn.getcwd() at test start reflects it.
-if [[ -n "$ARG_CWD" ]]; then
-  cd "$ARG_CWD"
-fi
+# in-Lua since +qa! runs immediately after the -c lua body.
 HOME="$TMPHOME" XDG_CONFIG_HOME="$TMPHOME/.config" \
   timeout --signal=KILL "$TIMEOUT" nvim \
     --headless \
