@@ -1,6 +1,6 @@
 ---
 name: research-workflow
-description: Multi-source research workflow. Extraction checklist and JSON claim-ledger schema for per-source fact extraction (Research Assistant), synthesis framework and report template for compiling one report (Research agent), and claim-merge.py that cross-references multiple ledgers into a corroboration/conflict matrix.
+description: Multi-source research workflow. Extraction checklist and JSON claim-ledger schema for per-source fact extraction (Research Assistant), the orchestrator pipeline that fans out assistants and hands ledger files to the synthesizer (Research orchestrator), claim-merge.py that cross-references multiple ledgers into a corroboration/conflict matrix, and the synthesis framework + report template for the Deep Research synthesizer.
 license: MIT
 compatibility: opencode
 metadata:
@@ -10,18 +10,33 @@ metadata:
 
 # Research Workflow
 
-This skill defines the multi-source research pipeline used by the Research agents. It has three parts:
+This skill defines the multi-source research pipeline used by the Research agents. It has four parts:
 
-1. **Extraction methodology** (sections 2-5) — for the Research Assistant agent that extracts facts from a single source.
-2. **claim-merge.py** (section 6) — a script that cross-references multiple Research-Assistant claim ledgers.
-3. **Synthesis framework & report template** (sections 7-8) — for the Research agent that compiles the final report.
+1. **Extraction methodology** (sections 2-5) — for the Research Assistant agent, which extracts facts from a single source into a `/tmp/ledger_<id>.json` file.
+2. **claim-merge.py** (section 6) — a script, run by the Deep Research synthesizer, that cross-references multiple Research-Assistant claim ledgers.
+3. **Synthesis framework & report template** (sections 7-8) — for the Deep Research synthesizer that compiles the final report.
+
+> **Orchestration lives in the primary `research` agent** (depth 0): it calls `@sources`, fans out N × `@research-assistant` (one per source), collects each `LEDGER_PATH`, and hands the ledger file paths to `@deep-research`. The sub-agents are leaves and do not launch further sub-agents (depth 1).
 
 ## Roles
 
-| Agent | Reads | Responsibility |
-|-------|-------|----------------|
-| Research Assistant | Sections 2-5 | Extract all relevant facts from ONE assigned source into a hybrid summary + JSON claim ledger |
-| Research (orchestrator) | Sections 6-8 | Fan out assistants, run claim-merge.py, compile the final report |
+| Agent | Mode | Reads | Responsibility |
+|-------|------|-------|----------------|
+| Research (orchestrator) | primary, depth 0 | Pipeline (not this skill's sections) | Route the query: `@sources` → fan out N × `@research-assistant` (one per source) → collect each `LEDGER_PATH` → hand ledger file paths to `@deep-research` → present the report |
+| Research Assistant | subagent, leaf | Sections 2-5 | Extract all relevant facts from ONE assigned source into a `/tmp/ledger_<id>.json` ledger file (Write tool) and return a `LEDGER_PATH:` line |
+| Deep Research (synthesizer) | subagent, leaf | Sections 6-8 | Run `claim-merge.py` on the ledger file paths received from the orchestrator, then compile the final cross-referenced report |
+
+### Data flow & file contract
+
+```
+@sources            → source manifest (+ full_text_path /tmp/oa_<n>.txt where OA)
+@research-assistant → /tmp/ledger_<id>.json  (written via Write tool) + "LEDGER_PATH: /tmp/..." response line
+@deep-research     ← receives ledger file paths from orchestrator → claim-merge.py → report
+```
+
+- **OA full text**: `@sources` writes plain text to `/tmp/oa_<n>.txt` and passes `full_text_path` to `@research-assistant` — this avoids funneling up to 50k-char blobs through subagent boundaries.
+- **Claim ledgers**: each `@research-assistant` writes its own `/tmp/ledger_<id>.json` (JSON object = `source` + `facts[]` per §5) and returns a path, so the orchestrator never parses JSON out of prose and `claim-merge.py` consumes files directly.
+- **Depth**: only the primary `research` agent orchestrates; `@sources`, `@research-assistant`, and `@deep-research` are leaves (depth 1) and do not spawn further sub-agents.
 
 ---
 
@@ -58,19 +73,13 @@ Each extracted fact has a `type` field with one of these values:
 | `methodology` | Experimental or analytical method description |
 | `reference` | A citation to another work relevant to the query |
 
-## 4. Output Format — Hybrid
+## 4. Output Format — Ledger File + Status Line
 
-The Research Assistant returns a **hybrid output**: a formatted markdown prose summary followed by a fenced JSON block.
+The Research Assistant does NOT paste the ledger into its response. It writes the full claim ledger (a JSON object matching the schema in Section 5) to a `/tmp` file via the **Write tool**, then returns a brief prose status ending with a `LEDGER_PATH:` line. The orchestrator forwards that path to `@deep-research`, which feeds it to `claim-merge.py`.
 
-### Part 1: Formatted Summary
+### Part 1: The ledger file
 
-A markdown summary of the source keyed to the user's query. Use headings and bullet points. Group facts by subtopic. This is the human-readable view.
-
-### Part 2: JSON Claim Ledger
-
-The LAST thing in your output must be a fenced `json` code block containing the structured claim ledger. The Research agent extracts this block to pass to claim-merge.py.
-
-**The JSON block must be the absolute last thing in your output.** Do not add text after it.
+Using the Write tool, write a JSON object to `/tmp/ledger_<id>.json` (a short unique id, e.g. `/tmp/ledger_f1.json`). The object contains the `source` metadata and the `facts[]` array:
 
 ```json
 {
@@ -94,6 +103,16 @@ The LAST thing in your output must be a fenced `json` code block containing the 
   ]
 }
 ```
+
+### Part 2: The response status line
+
+Your response text stays short: a one-line status (source title, number of facts extracted, max confidence), and as the **absolute last line**, the contract line in this exact form:
+
+```
+LEDGER_PATH: /tmp/ledger_<id>.json
+```
+
+Do not paste the ledger JSON into your response — it lives in the file. If the source is inaccessible, still write a ledger file with an empty `facts[]` and the `source` metadata, then return the `LEDGER_PATH:` line pointing at it.
 
 ## 5. JSON Claim Ledger Schema
 
@@ -123,19 +142,19 @@ Confidence levels:
 
 ## 6. claim-merge.py
 
-Cross-references multiple Research-Assistant claim ledgers and produces a corroboration/conflict/unique matrix.
+Cross-references multiple Research-Assistant claim ledgers and produces a corroboration/conflict/unique matrix. It is invoked by the **Deep Research synthesizer** (the `@deep-research` agent), which receives the ledger file paths from the orchestrator.
 
 ### Invocation
 
 ```bash
-# File mode — Research agent writes ledgers to temp files, then calls:
-python3 ~/.config/opencode/skills/research-workflow/scripts/claim-merge.py /tmp/ledger1.json /tmp/ledger2.json /tmp/ledger3.json
+# File mode — @deep-research calls this with the ledger paths handed to it by the orchestrator:
+python3 ~/.config/opencode/skills/research-workflow/scripts/claim-merge.py /tmp/ledger_1.json /tmp/ledger_2.json /tmp/ledger_3.json
 
-# Stdin mode — pipe a JSON array of ledgers:
+# Stdin mode — pipe a JSON array of ledgers (alternative):
 echo '[{...},{...}]' | python3 ~/.config/opencode/skills/research-workflow/scripts/claim-merge.py
 ```
 
-The Research agent should use **file mode**: write each ledger to a temp file via bash heredoc, then invoke the script with those paths. This avoids shell-escaping issues with large JSON.
+Each `@research-assistant` already writes its own `/tmp/ledger_<id>.json`, so **file mode** is the default — no heredoc shell-escaping is needed.
 
 ### How It Clusters Facts
 
@@ -213,7 +232,7 @@ Facts from the **same source URL are never clustered** — corroboration require
 
 ---
 
-## 7. Synthesis Framework (Research Agent)
+## 7. Synthesis Framework (Deep Research Synthesizer)
 
 After running claim-merge.py, turn the cross-reference matrix into a coherent report using these rules:
 
@@ -250,7 +269,7 @@ When sources conflict:
 
 ## 8. Report Template
 
-The Research agent's final output uses this structure:
+The Deep Research synthesizer's final output uses this structure:
 
 ```
 ## Summary
@@ -285,7 +304,7 @@ Full list of all web resources used, numbered to match inline citations:
 Each source entry should note which Research-Assistant extracted it (by source URL matching).
 ```
 
-### Important Notes for the Research Agent
+### Important Notes for the Deep Research Synthesizer
 
 - **Do NOT skip the claim-merge step**: Even with 2 sources, the script catches numeric conflicts and corroborations that are easy to miss by eye.
 - **Facts from the merge matrix are pre-normalized**: Use the `value` fields directly. Do not re-interpret or re-check the sources unless something seems wrong.

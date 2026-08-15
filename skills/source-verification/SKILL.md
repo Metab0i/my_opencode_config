@@ -27,6 +27,8 @@ python3 ~/.config/opencode/skills/source-verification/scripts/source-picker.py -
 
 Domain matching is case-insensitive substring (e.g., `medicine` matches `Medicine & Health`).
 
+> **Tip for agents**: To classify a query's domain, first run `--list-domains` and pick the matching catalogue key (e.g. `Science & Academia`, `Medicine & Health`, `Law & Legal`, `Statistics, Economics & Data`, `News & Current Events`, `Philosophy & Humanities`, `Technology & Web Development`, `General / Unclassified`). Do not assume a hardcoded list — always confirm against `--list-domains`.
+
 ### Output
 
 ```json
@@ -149,6 +151,8 @@ When enabled, the script attempts to fetch open-access full text as plain text:
 5. **PDF-only sources** (arXiv, S2, DOAJ): Returns `full_text_url` (PDF link) but `full_text` remains null — the agent must use `webfetch` on the URL to read the PDF.
 
 `full_text` is truncated to 50,000 characters. If fetch fails, `full_text` stays null and `_full_text_error` is set. This is expected for many papers — only a subset of OA papers have JATS XML deposited in Europe PMC.
+
+> **Persisting OA full text for downstream agents**: `@sources` should NOT pass large `full_text` blobs through subagent boundaries. Instead, write each result's `full_text` (when present) to a `/tmp/oa_<n>.txt` file, and record that path on the source in its output manifest as `full_text_path`. For PDF-only OA results (arXiv, S2, DOAJ), record `full_text_url` and leave `full_text_path` null — the downstream `@research-assistant` will `webfetch` the PDF itself. This keeps the `@sources → @research-assistant` handoff cheap and avoids truncation.
 
 ### Rate Limits
 
