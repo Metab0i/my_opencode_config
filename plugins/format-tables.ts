@@ -285,11 +285,8 @@ function renderCodeBlockTable(rows: string[][], numCols: number, style: { leadin
       })
       out.push("| " + parts.join(" | ") + " |")
     }
-    if (rowIdx === 0) {
-      const dash = widths.map((w) => "-".repeat(w + 2))
-      out.push("|" + dash.join("|") + "|")
-    }
+    out.push(border())
   })
-  out.push(border(), "```")
+  out.push("```")
   return out
 }
