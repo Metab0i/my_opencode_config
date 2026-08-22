@@ -1,7 +1,7 @@
 ---
 description: Find and verify high-quality web sources for research. Uses domain-aware source selection from the shared source catalogue; persists OA full text to ~/tmp and returns a JSON manifest of vetted sources.
 mode: subagent
-steps: 14
+steps: 20
 permission:
   read: allow
   edit:

@@ -12,7 +12,7 @@ metadata:
 
 This skill defines the multi-source research pipeline used by the Research agents. It has four parts:
 
-1. **Extraction methodology** (sections 2-5) — for the Research Assistant agent, which extracts facts from a single source into a `/tmp/ledger_<id>.json` file.
+1. **Extraction methodology** (sections 2-5) — for the Research Assistant agent, which extracts facts from a single source into a `~/tmp/ledger_<id>.json` file.
 2. **claim-merge.py** (section 6) — a script, run by the Deep Research synthesizer, that cross-references multiple Research-Assistant claim ledgers.
 3. **Synthesis framework & report template** (sections 7-8) — for the Deep Research synthesizer that compiles the final report.
 
@@ -23,19 +23,21 @@ This skill defines the multi-source research pipeline used by the Research agent
 | Agent | Mode | Reads | Responsibility |
 |-------|------|-------|----------------|
 | Research (orchestrator) | primary, depth 0 | Pipeline (not this skill's sections) | Route the query: `@sources` → fan out N × `@research-assistant` (one per source) → collect each `LEDGER_PATH` → hand ledger file paths to `@deep-research` → present the report |
-| Research Assistant | subagent, leaf | Sections 2-5 | Extract all relevant facts from ONE assigned source into a `/tmp/ledger_<id>.json` ledger file (Write tool) and return a `LEDGER_PATH:` line |
+| Research Assistant | subagent, leaf | Sections 2-5 | Extract all relevant facts from ONE assigned source into a `~/tmp/ledger_<id>.json` ledger file (Write tool) and return a `LEDGER_PATH:` line |
 | Deep Research (synthesizer) | subagent, leaf | Sections 6-8 | Run `claim-merge.py` on the ledger file paths received from the orchestrator, then compile the final cross-referenced report |
 
 ### Data flow & file contract
 
 ```
-@sources            → source manifest (+ full_text_path /tmp/oa_<n>.txt where OA)
-@research-assistant → /tmp/ledger_<id>.json  (written via Write tool) + "LEDGER_PATH: /tmp/..." response line
+@sources            → source manifest (+ full_text_path ~/tmp/oa_<n>.txt where OA)
+@research-assistant → ~/tmp/ledger_<id>.json  (written via Write tool) + "LEDGER_PATH: ~/tmp/..." response line
 @deep-research     ← receives ledger file paths from orchestrator → claim-merge.py → report
 ```
 
-- **OA full text**: `@sources` writes plain text to `/tmp/oa_<n>.txt` and passes `full_text_path` to `@research-assistant` — this avoids funneling up to 50k-char blobs through subagent boundaries.
-- **Claim ledgers**: each `@research-assistant` writes its own `/tmp/ledger_<id>.json` (JSON object = `source` + `facts[]` per §5) and returns a path, so the orchestrator never parses JSON out of prose and `claim-merge.py` consumes files directly.
+- **OA full text**: `@sources` writes plain text to `~/tmp/oa_<n>.txt` and passes `full_text_path` to `@research-assistant` — this avoids funneling up to 50k-char blobs through subagent boundaries.
+- **Claim ledgers**: each `@research-assistant` writes its own `~/tmp/ledger_<id>.json` (JSON object = `source` + `facts[]` per §5) and returns a path, so the orchestrator never parses JSON out of prose and `claim-merge.py` consumes files directly.
+- **Reuse & checkpointing**: a plugin (`research-orchestrator.ts`) records each source URL → `{ ledger_path, status, mtime }` in `~/tmp/research_state.json` after extraction, and records each report after synthesis. The orchestrator reads that file before extracting/synthesizing to reuse fresh artifacts instead of re-running work.
+- **Report filename**: the orchestrator owns the report filename and passes the exact `~/research/research_report_<ts>.md` path to `@deep-research`, which must write there (not invent its own name) and verify the file exists before returning `REPORT_PATH`.
 - **Depth**: only the primary `research` agent orchestrates; `@sources`, `@research-assistant`, and `@deep-research` are leaves (depth 1) and do not spawn further sub-agents.
 
 ---
@@ -75,11 +77,11 @@ Each extracted fact has a `type` field with one of these values:
 
 ## 4. Output Format — Ledger File + Status Line
 
-The Research Assistant does NOT paste the ledger into its response. It writes the full claim ledger (a JSON object matching the schema in Section 5) to a `/tmp` file via the **Write tool**, then returns a brief prose status ending with a `LEDGER_PATH:` line. The orchestrator forwards that path to `@deep-research`, which feeds it to `claim-merge.py`.
+The Research Assistant does NOT paste the ledger into its response. It writes the full claim ledger (a JSON object matching the schema in Section 5) to a `~/tmp` file via the **Write tool**, then returns a brief prose status ending with a `LEDGER_PATH:` line. The orchestrator forwards that path to `@deep-research`, which feeds it to `claim-merge.py`.
 
 ### Part 1: The ledger file
 
-Using the Write tool, write a JSON object to `/tmp/ledger_<id>.json` (a short unique id, e.g. `/tmp/ledger_f1.json`). The object contains the `source` metadata and the `facts[]` array:
+Using the Write tool, write a JSON object to `~/tmp/ledger_<id>.json` (a short unique id, e.g. `~/tmp/ledger_f1.json`). The object contains the `source` metadata and the `facts[]` array:
 
 ```json
 {
@@ -109,7 +111,7 @@ Using the Write tool, write a JSON object to `/tmp/ledger_<id>.json` (a short un
 Your response text stays short: a one-line status (source title, number of facts extracted, max confidence), and as the **absolute last line**, the contract line in this exact form:
 
 ```
-LEDGER_PATH: /tmp/ledger_<id>.json
+LEDGER_PATH: ~/tmp/ledger_<id>.json
 ```
 
 Do not paste the ledger JSON into your response — it lives in the file. If the source is inaccessible, still write a ledger file with an empty `facts[]` and the `source` metadata, then return the `LEDGER_PATH:` line pointing at it.
@@ -147,24 +149,28 @@ Cross-references multiple Research-Assistant claim ledgers and produces a corrob
 ### Invocation
 
 ```bash
-# File mode — @deep-research calls this with the ledger paths handed to it by the orchestrator:
-python3 ~/.config/opencode/skills/research-workflow/scripts/claim-merge.py /tmp/ledger_1.json /tmp/ledger_2.json /tmp/ledger_3.json
+# File mode — @deep-research calls this with the ledger paths handed to it by the orchestrator,
+# writing the merge matrix to a file so large outputs never flood the agent's context:
+python3 ~/.config/opencode/skills/research-workflow/scripts/claim-merge.py ~/tmp/ledger_1.json ~/tmp/ledger_2.json ~/tmp/ledger_3.json --out ~/tmp/merge_<ts>.json
 
 # Stdin mode — pipe a JSON array of ledgers (alternative):
 echo '[{...},{...}]' | python3 ~/.config/opencode/skills/research-workflow/scripts/claim-merge.py
 ```
 
-Each `@research-assistant` already writes its own `/tmp/ledger_<id>.json`, so **file mode** is the default — no heredoc shell-escaping is needed.
+Each `@research-assistant` already writes its own `~/tmp/ledger_<id>.json`, so **file mode** is the default — no heredoc shell-escaping is needed.
 
 ### How It Clusters Facts
 
+`claim-merge.py` is a **numeric/date/name safety-net, not a corroboration engine**. It only reliably clusters low-ambiguity fact types:
+
 | Fact type | Matching method |
 |-----------|---------------|
-| `number`, `statistic` | Numeric value match within 5% tolerance |
+| `number`, `statistic` | Numeric value match within 5% tolerance **and** at least one shared `topic_tag` |
 | `date` | Normalized text match (ISO-like) |
 | `name`, `place` | Case-insensitive exact match (punctuation stripped) |
 | `quote` | Normalized verbatim text exact match |
-| `claim`, `definition`, `methodology`, `reference` | Jaccard text similarity ≥ 0.75, OR shared primary number + Jaccard ≥ 0.30 |
+
+Free-text `claim`, `definition`, `methodology`, and `reference` facts are **not** clustered — paraphrase/semantic corroboration across differently-authored ledgers cannot be done reliably by token overlap and is left to the synthesizer's manual reading of the ledger `value` fields.
 
 Facts from the **same source URL are never clustered** — corroboration requires distinct sources.
 
@@ -228,7 +234,7 @@ Facts from the **same source URL are never clustered** — corroboration require
 ### Caveats
 
 - Conflict detection is **exact for numbers, statistics, and dates**. Claim-text polarity conflicts (e.g., "X is true" vs "X is false") are NOT auto-detected — the Research agent must catch those manually during synthesis.
-- Semantic similarity for claims uses Jaccard token overlap, which may miss paraphrased restatements. The numeric-value fallback helps but is not perfect.
+- Free-text claim corroboration is intentionally not automated; numeric corroboration requires shared `topic_tags` to avoid false positives (e.g., an unrelated bus-bandwidth figure matching a memory-bandwidth figure).
 
 ---
 
@@ -306,7 +312,8 @@ Each source entry should note which Research-Assistant extracted it (by source U
 
 ### Important Notes for the Deep Research Synthesizer
 
-- **Do NOT skip the claim-merge step**: Even with 2 sources, the script catches numeric conflicts and corroborations that are easy to miss by eye.
-- **Facts from the merge matrix are pre-normalized**: Use the `value` fields directly. Do not re-interpret or re-check the sources unless something seems wrong.
+- **Run claim-merge.py as a safety-net, not a corroboration engine**: it catches numeric/date/name conflicts and numeric agreements you might miss by eye. Establish free-text corroboration yourself by reading the ledger `value` fields across sources.
+- **Use `--out ~/tmp/merge_<ts>.json`**: write the merge matrix to a file and read it in chunks rather than dumping a large JSON blob into your context.
+- **Facts from the merge matrix are pre-normalized** for the types it clusters (numbers, statistics, dates, names, places, quotes). Do not re-interpret or re-check those unless something seems wrong.
 - **The merge matrix does NOT detect semantic claim conflicts**: "X causes Y" vs "X does not cause Y" won't be flagged by the script. You must read the claim-ledgers for this.
 - **Always include the conflict context**: When reporting a conflict, show the divergent values with their sources so the user can judge.

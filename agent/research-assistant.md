@@ -1,7 +1,7 @@
 ---
 description: Extract all relevant facts from a single source into a ~/tmp claim ledger file + brief status (with LEDGER_PATH) for the Research orchestrator. Writes sections 2-5 of research-workflow.
 mode: subagent
-steps: 12
+steps: 20
 permission:
   read: allow
   edit:

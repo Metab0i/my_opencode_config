@@ -7,7 +7,10 @@ matrix as JSON to stdout.
 
 Usage:
     # File mode — pass ledger file paths
-    python3 claim-merge.py /tmp/ledger1.json /tmp/ledger2.json /tmp/ledger3.json
+    python3 claim-merge.py ~/tmp/ledger1.json ~/tmp/ledger2.json ~/tmp/ledger3.json
+
+    # File mode with output written to a file (recommended for large merges)
+    python3 claim-merge.py ~/tmp/ledger1.json ... --out ~/tmp/merge.json
 
     # Stdin mode — pipe a JSON array of ledgers
     echo '[{...},{...}]' | python3 claim-merge.py
@@ -42,7 +45,6 @@ import sys
 # Normalization helpers
 # ---------------------------------------------------------------------------
 
-CLAIM_SIMILARITY_THRESHOLD = 0.75
 NUMERIC_EPSILON = 0.01
 MAX_VERBATIM_LEN = 300
 
@@ -55,19 +57,6 @@ def normalize_text(text):
     t = re.sub(r"[^\w\s]", " ", t)
     t = re.sub(r"\s+", " ", t).strip()
     return t
-
-
-def tokenize(text):
-    """Return set of normalized tokens."""
-    return set(normalize_text(text).split())
-
-
-def jaccard_similarity(t1, t2):
-    s1 = tokenize(t1)
-    s2 = tokenize(t2)
-    if not s1 or not s2:
-        return 0.0
-    return len(s1 & s2) / len(s1 | s2)
 
 
 def extract_numeric(value):
@@ -124,12 +113,22 @@ class Fact:
 # ---------------------------------------------------------------------------
 
 def facts_match(f1, f2):
-    """Determine if two facts refer to the same underlying information."""
-    # Numbers / statistics: compare numeric values
+    """Determine if two facts refer to the same underlying information.
+
+    Only low-ambiguity types are clustered: numbers, statistics, dates,
+    names, places, and quotes. Free-text claim/definition/methodology
+    clustering is intentionally omitted — it yields near-zero true
+    corroboration and is left to the synthesizer's manual reading.
+    """
+    # Numbers / statistics: compare numeric values AND require a shared topic tag
     if f1.type in ("number", "statistic") and f2.type in ("number", "statistic"):
         n1 = extract_numeric(f1.value)
         n2 = extract_numeric(f2.value)
         if n1 is not None and n2 is not None:
+            tags1 = set(f1.topic_tags or [])
+            tags2 = set(f2.topic_tags or [])
+            if not (tags1 & tags2):
+                return False
             return abs(n1 - n2) < max(NUMERIC_EPSILON, abs(n1) * 0.05)
 
     # Dates: normalized text match
@@ -145,23 +144,6 @@ def facts_match(f1, f2):
     # Quotes: exact normalized match (quotes are verbatim so should be identical)
     if f1.type == "quote" and f2.type == "quote":
         return normalize_text(f1.verbatim) == normalize_text(f2.verbatim)
-
-    # Claims / definitions / methodology: Jaccard text similarity
-    if f1.type in ("claim", "definition", "methodology", "reference") and \
-       f2.type in ("claim", "definition", "methodology", "reference"):
-        # Only cluster same-type facts
-        if f1.type != f2.type:
-            return False
-        if jaccard_similarity(f1.value, f2.value) >= CLAIM_SIMILARITY_THRESHOLD:
-            return True
-        # Fallback: if both claims contain the same primary number and share
-        # moderate text similarity, they likely describe the same fact
-        n1 = extract_numeric(f1.value)
-        n2 = extract_numeric(f2.value)
-        if n1 is not None and n2 is not None and \
-           abs(n1 - n2) < max(NUMERIC_EPSILON, abs(n1) * 0.05) and \
-           jaccard_similarity(f1.value, f2.value) >= 0.30:
-            return True
 
     return False
 
@@ -342,18 +324,44 @@ def parse_ledger_raw(raw):
 # Main
 # ---------------------------------------------------------------------------
 
+def emit(data, out_path):
+    """Write the merge result to a file if --out was given, else stdout."""
+    payload = json.dumps(data, indent=2, ensure_ascii=False)
+    if out_path:
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(payload + "\n")
+    else:
+        print(payload)
+
+
 def main():
     argv = sys.argv[1:]
+
+    # Parse --out <path> (or --out=<path>)
+    out_path = None
+    positional = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--out" and i + 1 < len(argv):
+            out_path = argv[i + 1]
+            i += 2
+        elif arg.startswith("--out="):
+            out_path = arg[len("--out="):]
+            i += 1
+        else:
+            positional.append(arg)
+            i += 1
 
     # Determine input mode
     raw_ledgers = []
 
-    if not argv:
+    if not positional:
         # Stdin mode
         try:
             raw_ledgers = load_ledgers_from_stdin()
         except Exception as e:
-            print(json.dumps({
+            emit({
                 "total_sources": 0,
                 "total_facts": 0,
                 "corroborated": [],
@@ -361,15 +369,15 @@ def main():
                 "conflicts": [],
                 "caveats": [],
                 "error": f"Failed to parse stdin: {e}",
-            }, indent=2, ensure_ascii=False))
+            }, out_path)
             sys.exit(0)
     else:
         # File mode
-        for path in argv:
+        for path in positional:
             try:
                 raw_ledgers.append(load_ledger(path))
             except Exception as e:
-                print(json.dumps({
+                emit({
                     "total_sources": 0,
                     "total_facts": 0,
                     "corroborated": [],
@@ -377,7 +385,7 @@ def main():
                     "conflicts": [],
                     "caveats": [],
                     "error": f"Failed to load {path}: {e}",
-                }, indent=2, ensure_ascii=False))
+                }, out_path)
                 sys.exit(0)
 
     # Parse ledgers into Fact objects
@@ -392,7 +400,7 @@ def main():
             all_facts.append(Fact(fdict, source_meta))
 
     if not all_facts:
-        print(json.dumps({
+        emit({
             "total_sources": len(source_urls),
             "total_facts": 0,
             "corroborated": [],
@@ -400,7 +408,7 @@ def main():
             "conflicts": [],
             "caveats": ["No facts found in any ledger."],
             "error": None,
-        }, indent=2, ensure_ascii=False))
+        }, out_path)
         sys.exit(0)
 
     # Cluster
@@ -411,8 +419,8 @@ def main():
 
     # Build caveats
     caveats = [
-        "Conflict detection is exact for numbers, statistics, and dates; "
-        "claim-text conflicts are auto-detected by semantic similarity only.",
+        "Clustering is limited to numbers, statistics, dates, names, places, "
+        "and quotes; free-text claim corroboration is not automated.",
         "Facts from the same source are never clustered together — "
         "corroboration requires distinct source URLs.",
     ]
@@ -432,7 +440,7 @@ def main():
         "error": None,
     }
 
-    print(json.dumps(output, indent=2, ensure_ascii=False))
+    emit(output, out_path)
 
 
 if __name__ == "__main__":

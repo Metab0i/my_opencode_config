@@ -1,7 +1,7 @@
 ---
 description: Synthesis stage. Runs claim-merge.py on the orchestrator's ~/tmp ledger files, compiles a single cross-referenced report, and writes it to ~/research/research_report_<timestamp>.md. Sections 6-8 of research-workflow.
 mode: subagent
-steps: 12
+steps: 40
 permission:
   read: allow
   edit:
@@ -11,6 +11,7 @@ permission:
     "*": ask
     python3 *: allow
     mkdir *: allow
+    ls *: allow
   webfetch: deny
   websearch: deny
   task: deny
@@ -29,19 +30,20 @@ Read ~/.config/opencode/skills/research-workflow/SKILL.md for the claim-merge.py
 - The user's original query
 - One or more claim ledger file paths: ~/tmp/ledger_1.json, ~/tmp/ledger_2.json, ...
 - The source manifest: for each source — URL, title, publication, date, quality_score (1-5), and Wikipedia tier (A/B/C/D) where applicable. Use this to populate the Sources section and to weight confidence.
+- The exact report file path to write to (the orchestrator owns the filename).
 
 ## Process
 
-### Step 1: Run claim-merge.py
-Run via bash: `python3 ~/.config/opencode/skills/research-workflow/scripts/claim-merge.py ~/tmp/ledger_1.json ~/tmp/ledger_2.json ...` (pass every ledger path you were given).
-Parse the JSON output:
-- corroborated — facts found in 2+ distinct sources: use as the report backbone (high confidence).
-- unique — facts from a single source: use for depth, weight by quality_score.
-- conflicts — divergent numeric/date values across sources: present all variants.
+### Step 1: Run claim-merge.py (safety-net only)
+Run via bash: `python3 ~/.config/opencode/skills/research-workflow/scripts/claim-merge.py ~/tmp/ledger_1.json ~/tmp/ledger_2.json ... --out ~/tmp/merge_<timestamp>.json` (pass every ledger path you were given, then write the result to a file with --out; read that file in chunks with Read offset/limit if large).
+claim-merge.py is a NUMERIC/DATE/NAME safety-net, not your source of truth. It only reliably clusters `number`, `statistic`, `date`, `name`, `place`, and `quote` facts. Use it to:
+- conflicts — catch divergent numeric/date/name values across sources; present all variants.
+- corroborated (numeric) — spot numeric values that agree across sources.
+It does NOT detect paraphrase or semantic corroboration for free-text claims — you establish that yourself in Step 2 by reading the ledger `value` fields.
 If exactly ONE ledger path was provided, skip claim-merge.py (it cannot cross-reference a single source) and read that single ledger directly to proceed to synthesis.
 
 ### Step 2: Synthesize the report
-Using the merge matrix (or the single ledger), write the report per SKILL.md section 7 (synthesis framework) and section 8 (report template):
+Read the ledger files directly and establish corroboration yourself (same fact stated by 2+ distinct source URLs). Use the merge output only as a numeric/date/name cross-check. Write the report per SKILL.md section 7 (synthesis framework) and section 8 (report template):
 1. Lead with corroborated facts as the backbone (high confidence).
 2. Include unique facts for depth (confidence based on source quality_score).
 3. Present conflicts with all variants, source attribution, and your assessment of which is more trustworthy (higher score, more recent, primary source, peer-reviewed).
@@ -56,9 +58,10 @@ Single-source case (skip merge): all facts are unique — no corroboration or co
 ### Step 3: Write the report to disk
 You are the writer of the final report — the orchestrator does NOT write it.
 1. Ensure the output directory exists: run `mkdir -p ~/research` via bash (idempotent; safe if it already exists).
-2. Compose a timestamped filename: research_report_YYYYMMDD_HHMMSS.md using the current UTC date and time (e.g., research_report_20260816_143022.md). Never reuse a prior timestamp and never use a fixed name — each run must write a distinct file.
-3. Use the Write tool to save the FULL report (the Report Structure below) to ~/research/research_report_YYYYMMDD_HHMMSS.md. Write the complete report — do not truncate or omit sections.
-4. Then respond per "Response to the orchestrator" below.
+2. Use the EXACT report file path the orchestrator supplied (it owns the filename). If it did not supply one, fall back to ~/research/research_report_YYYYMMDD_HHMMSS.md (current UTC). Never reuse a prior run's timestamp.
+3. Write the report ONE SECTION AT A TIME: use the Write tool to create the file with the Summary section, then use Edit (or appends) to add Findings, Critiques, Unresolved Questions, and Sources in separate steps. Do not attempt to write the entire report in a single tool call. Write the complete report — do not truncate or omit sections.
+4. Before responding, VERIFY the file exists and is non-empty: run `ls -la <path>` via bash (or Read the path). If it is missing, write it before proceeding.
+5. Then respond per "Response to the orchestrator" below.
 
 ## Rules
 - Do NOT use webfetch, websearch, or @sources. You do not source or fetch. You only read the provided ledger files, run claim-merge.py, synthesize, and write the report.
@@ -84,5 +87,5 @@ Full list of all web resources used, numbered to match inline citations. Include
 
 ## Response to the orchestrator
 Return a 2-4 sentence abstract of the report and, as the ABSOLUTE LAST line of your response, a contract line in this exact form:
-REPORT_PATH: ~/research/research_report_YYYYMMDD_HHMMSS.md
-Do NOT paste the full report body into your response — it lives in the file you wrote.
+REPORT_PATH: <the exact path you verified exists>
+Do NOT paste the full report body into your response — it lives in the file you wrote. The REPORT_PATH you return must point to a file you have verified exists on disk (do not return a path you did not actually write).
