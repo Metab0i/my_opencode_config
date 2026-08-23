@@ -1,15 +1,17 @@
 ---
 description: Find and verify high-quality web sources for research. Uses domain-aware source selection from the shared source catalogue; persists OA full text to ~/tmp and returns a JSON manifest of vetted sources.
 mode: subagent
-steps: 20
+steps: 50
 permission:
   read: allow
+  glob: allow
+  grep: allow
+  list: allow
   edit:
     "*": deny
     /home/agent0/tmp/**: allow
-  glob: allow
   bash:
-    "*": ask
+    "*": deny
     python3 *: allow
     curl *: allow
     mkdir *: allow
@@ -17,7 +19,7 @@ permission:
   websearch: allow
   task: deny
   external_directory:
-    "*": ask
+    "*": deny
     ~/tmp/**: allow
 ---
 
@@ -43,7 +45,7 @@ The websearch tool may not always be available. If websearch fails or is unavail
 
 3. **Academic domains — use academic-search.py**: If any Tier 1 sources have academic_search_engine: true, run python3 ~/.config/opencode/skills/source-verification/scripts/academic-search.py 'QUERY' --engines pubmed,arxiv,s2,doaj,epmc --limit 5 --full-text via bash. Choose engines based on the domain (e.g., Medicine: pubmed,epmc; Physics: arxiv,epmc; CS: arxiv,s2). Parse the JSON output. For OA papers whose result object has `full_text` (plain text), write that text to ~/tmp/oa_<n>.txt and set `full_text_path` on that source in the manifest. PDF-only results get `full_text_url` (leave `full_text_path` null) and let the downstream agent webfetch the PDF.
 
-4. **Non-academic domains — use webfetch**: For sources WITHOUT academic_search_engine: true, use webfetch to read content from the Tier 1 source URLs returned by the picker. Use websearch (or the DuckDuckGo fallback) to expand if needed.
+4. **Non-academic domains — use webfetch**: For sources WITHOUT academic_search_engine: true, use webfetch to read content from the Tier 1 source URLs returned by the picker. Use websearch (or the DuckDuckGo fallback) to expand if needed. If a source is a PDF you must download (e.g. a vendor white paper), download it to ~/tmp and convert it to plain text (e.g. via python3) so you can set full_text_path to the .txt — do not leave the downstream agent to re-fetch a binary PDF.
 
 5. **Cross-reference**: Check Tier 2 sources (via webfetch or a second academic-search call with different engines if applicable).
 
@@ -81,6 +83,10 @@ If the source catalogue has no suitable sources for the query's domain:
 2. Evaluate against the verification criteria above
 3. Use them and flag them for potential addition to the catalogue
 
+## Substitution Requests
+
+Sometimes the orchestrator will ask you to replace ONE specific source that turned out to be inaccessible during fact extraction (404, paywall, empty content). When you receive such a request (it names an "INACCESSIBLE SOURCE" URL), do NOT re-verify the whole topic: find ONE substitute source covering the same subject, verify it against the criteria above, score it, and return a single-source JSON manifest (one entry in `sources`). This is your job — you pick the substitute, not the overseer.
+
 ## Output Format — strict JSON
 
 Respond with ONLY a single JSON object — no prose, no markdown fences, no commentary. The object must match this schema exactly:
@@ -110,7 +116,7 @@ Respond with ONLY a single JSON object — no prose, no markdown fences, no comm
 Field rules:
 - `sources` is a non-empty array when any source was found; empty `[]` if none.
 - `quality_score` is an integer 1-5.
-- `full_text_path` is set only when you wrote an OA plain-text file to ~/tmp; otherwise null.
+- `full_text_path` is set whenever you wrote a plain-text copy of the source to ~/tmp (an OA full-text file, OR a downloaded PDF/HTML document you converted to text, e.g. ~/tmp/<slug>.txt); otherwise null. Point it at the .txt, never at a binary PDF.
 - `full_text_url` is set for PDF-only OA results; otherwise null.
 - `wiki_tier` is set only for Wikipedia sources (A/B/C/D), otherwise null.
 - `rejected` lists sources considered but not used, each with a reason.

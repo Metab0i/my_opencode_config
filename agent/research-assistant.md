@@ -1,14 +1,17 @@
 ---
 description: Extract all relevant facts from a single source into a ~/tmp claim ledger file + brief status (with LEDGER_PATH) for the Research orchestrator. Writes sections 2-5 of research-workflow.
 mode: subagent
-steps: 20
+steps: 30
 permission:
   read: allow
+  glob: allow
+  grep: allow
+  list: allow
   edit:
     "*": deny
     /home/agent0/tmp/**: allow
   bash:
-    "*": ask
+    "*": deny
     python3 *: allow
     curl *: allow
     mkdir *: allow
@@ -16,7 +19,7 @@ permission:
   websearch: deny
   task: deny
   external_directory:
-    "*": ask
+    "*": deny
     ~/tmp/**: allow
 ---
 

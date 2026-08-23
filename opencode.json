@@ -1,7 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "default_agent": "research",
-  "plugin": ["./plugins/research-orchestrator.ts"],
   "permission": {
     "*": "ask"
   }

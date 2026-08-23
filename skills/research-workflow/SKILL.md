@@ -36,8 +36,7 @@ This skill defines the multi-source research pipeline used by the Research agent
 
 - **OA full text**: `@sources` writes plain text to `~/tmp/oa_<n>.txt` and passes `full_text_path` to `@research-assistant` — this avoids funneling up to 50k-char blobs through subagent boundaries.
 - **Claim ledgers**: each `@research-assistant` writes its own `~/tmp/ledger_<id>.json` (JSON object = `source` + `facts[]` per §5) and returns a path, so the orchestrator never parses JSON out of prose and `claim-merge.py` consumes files directly.
-- **Reuse & checkpointing**: a plugin (`research-orchestrator.ts`) records each source URL → `{ ledger_path, status, mtime }` in `~/tmp/research_state.json` after extraction, and records each report after synthesis. The orchestrator reads that file before extracting/synthesizing to reuse fresh artifacts instead of re-running work.
-- **Report filename**: the orchestrator owns the report filename and passes the exact `~/research/research_report_<ts>.md` path to `@deep-research`, which must write there (not invent its own name) and verify the file exists before returning `REPORT_PATH`.
+- **Report filename**: the orchestrator owns the report filename — `~/research/<slug>_<YYYYMMDD>.md` (short lowercase topic slug + today's date, e.g. `gpu_20260823.md`). It passes this exact path to `@deep-research`, which must write there (not invent its own name or a timestamp) and verify the file exists before returning `REPORT_PATH`.
 - **Depth**: only the primary `research` agent orchestrates; `@sources`, `@research-assistant`, and `@deep-research` are leaves (depth 1) and do not spawn further sub-agents.
 
 ---

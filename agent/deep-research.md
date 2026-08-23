@@ -1,22 +1,24 @@
 ---
-description: Synthesis stage. Runs claim-merge.py on the orchestrator's ~/tmp ledger files, compiles a single cross-referenced report, and writes it to ~/research/research_report_<timestamp>.md. Sections 6-8 of research-workflow.
+description: Synthesis stage. Runs claim-merge.py on the orchestrator's ~/tmp ledger files, compiles a single cross-referenced report, and writes it to the ~/research path the orchestrator supplies. Sections 6-8 of research-workflow.
 mode: subagent
-steps: 40
+steps: 60
 permission:
   read: allow
-  edit:
-    "*": deny
-    /home/agent0/research/**: allow
+  glob: allow
+  grep: allow
+  list: allow
+  edit: allow
   bash:
-    "*": ask
+    "*": deny
     python3 *: allow
     mkdir *: allow
     ls *: allow
+    rm ~/tmp/merge_*.json: allow
   webfetch: deny
   websearch: deny
   task: deny
   external_directory:
-    "*": ask
+    "*": deny
     ~/tmp/**: allow
     ~/research/**: allow
 ---
@@ -58,10 +60,11 @@ Single-source case (skip merge): all facts are unique — no corroboration or co
 ### Step 3: Write the report to disk
 You are the writer of the final report — the orchestrator does NOT write it.
 1. Ensure the output directory exists: run `mkdir -p ~/research` via bash (idempotent; safe if it already exists).
-2. Use the EXACT report file path the orchestrator supplied (it owns the filename). If it did not supply one, fall back to ~/research/research_report_YYYYMMDD_HHMMSS.md (current UTC). Never reuse a prior run's timestamp.
+2. Use the EXACT report file path the orchestrator supplied (it owns the filename, e.g. ~/research/gpu_20260823.md). The orchestrator always supplies the path; if it somehow did not, fall back to ~/research/report_<YYYYMMDD>.md (today's date — no clock or timestamp generation is required of you).
 3. Write the report ONE SECTION AT A TIME: use the Write tool to create the file with the Summary section, then use Edit (or appends) to add Findings, Critiques, Unresolved Questions, and Sources in separate steps. Do not attempt to write the entire report in a single tool call. Write the complete report — do not truncate or omit sections.
 4. Before responding, VERIFY the file exists and is non-empty: run `ls -la <path>` via bash (or Read the path). If it is missing, write it before proceeding.
-5. Then respond per "Response to the orchestrator" below.
+5. Clean up your temporary merge file: run `rm ~/tmp/merge_*.json` via bash. The report file itself is the deliverable.
+6. Then respond per "Response to the orchestrator" below.
 
 ## Rules
 - Do NOT use webfetch, websearch, or @sources. You do not source or fetch. You only read the provided ledger files, run claim-merge.py, synthesize, and write the report.
