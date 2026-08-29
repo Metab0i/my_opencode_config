@@ -3,5 +3,40 @@
   "default_agent": "research",
   "permission": {
     "*": "ask"
+  },
+  "agent": {
+    "plan": {
+      "prompt": "{file:./prompts/plan-prompt.md}",
+      "temperature": 0.1,
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "edit": { "*": "ask", "/tmp/**": "allow" },
+        "bash": "ask",
+        "task": { "*": "deny", "critic": "allow", "explore": "allow" },
+        "question": "allow",
+        "plan_path": "allow",
+        "external_directory": { "/tmp/**": "allow" }
+      }
+    },
+    "build": {
+      "prompt": "{file:./prompts/build-prompt.md}",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "edit": "allow",
+        "bash": "ask",
+        "task": { "*": "deny", "reviewer": "allow" },
+        "question": "allow",
+        "plan_path": "allow",
+        "external_directory": { "/tmp/**": "allow" }
+      }
+    }
   }
 }
