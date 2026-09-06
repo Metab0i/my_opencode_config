@@ -35,7 +35,7 @@
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { startAutoApprover } from "./lib/approver.mjs"
 import { ProgressReporter } from "./lib/progress.mjs"
-import { loadWorkflowByName, substitute, evaluateRoute, missingAgents, normalizeModel, extractJson, pickVariant, workflowDir } from "./lib/workflow.mjs"
+import { loadWorkflowByName, substitute, evaluateRoute, missingAgents, normalizeModel, extractJson, validateAgainstSchema, pickVariant, workflowDir } from "./lib/workflow.mjs"
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -139,6 +139,14 @@ function buildInput(args, wf) {
 class UsageError extends Error {}
 class WorkflowError extends Error {}
 
+/**
+ * Default number of text-fallback fix attempts per json_schema step before giving up:
+ * after the structured path fails AND the first text-fallback produces invalid/schema-
+ * violating JSON, re-prompt the model (feeding back what was wrong) up to this many times.
+ * A step can override via `output.fixRetries`.
+ */
+const DEFAULT_FIX_RETRIES = 3
+
 // ---------------------------------------------------------------------------
 // Step execution
 // ---------------------------------------------------------------------------
@@ -229,7 +237,7 @@ async function tryStructured(client, ctx, step, promptText, model) {
 /** Prompt with `format: "text"` embedding the schema, then extract + validate JSON. */
 async function tryTextFallback(client, ctx, step, promptText, model) {
   const schemaText = JSON.stringify(step.output.schema, null, 2)
-  const text = [
+  const base = [
     promptText ?? "",
     "Respond with ONLY a JSON object matching this schema. No prose, no markdown, no code fences.",
     "Schema:",
@@ -237,22 +245,72 @@ async function tryTextFallback(client, ctx, step, promptText, model) {
   ]
     .filter((s) => s !== "")
     .join("\n\n")
-  const res = await client.session.prompt({
-    sessionID: ctx.sessionID,
-    directory: ctx.dir,
-    agent: step.agent,
-    model: model ?? undefined,
-    parts: [{ type: "text", text }],
-  })
-  checkHttpError(res, step)
-  const info = res.data.info
-  checkAssistantError(info, step)
-  const raw = lastTextPart(res.data.parts)
-  const parsed = extractJson(raw)
-  // Validate against the declared schema shape (best-effort: enforce required fields the
-  // same way the structured path does, without a full JSON-schema validator dependency).
-  return parsed
+
+  const maxAttempts = step.output.fixRetries ?? DEFAULT_FIX_RETRIES
+  const attempts = []
+  let text = base
+  let lastRaw
+  let attemptsDone = 0
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    attemptsDone = attempt
+    const res = await client.session.prompt({
+      sessionID: ctx.sessionID,
+      directory: ctx.dir,
+      agent: step.agent,
+      model: model ?? undefined,
+      parts: [{ type: "text", text }],
+    })
+    checkHttpError(res, step)
+    const info = res.data.info
+    checkAssistantError(info, step)
+    const raw = lastTextPart(res.data.parts)
+
+    // Parse + validate. both `extractJson` (no JSON found) and a schema violation are
+    // fixable issues, so report them to the model and re-prompt up to maxAttempts times.
+    let violations
+    try {
+      const parsed = extractJson(raw)
+      const check = validateAgainstSchema(parsed, step.output.schema)
+      if (check.ok) return parsed
+      violations = check.errors
+    } catch (e) {
+      violations = [`${e instanceof Error ? e.message : String(e)}`]
+    }
+
+    // Emit a stage note so the operator can see the model corrected itself.
+    console.error(
+      `  └─ [fix] step "${step.id}" attempt ${attempt}/${maxAttempts}: ${violations.join("; ")}`,
+    )
+    attempts.push(`attempt ${attempt}: ${violations.join("; ")}`)
+
+    // No-progress guard: bail early if the model just regurgitated the same bad JSON.
+    if (raw === lastRaw) {
+      attempts.push(`attempt ${attempt} produced no change; stopping early`)
+      break
+    }
+    lastRaw = raw
+
+    // Build the next prompt: feed back both the bad output and the specific violations so
+    // the model knows exactly what to fix (per user decision: include the bad output too).
+    text = [
+      base,
+      "Your previous answer did not match the schema.",
+      "Your previous answer was:",
+      raw,
+      "Problems to fix:",
+      violations.map((e) => `- ${e}`).join("\n"),
+      "Return a corrected JSON object that fixes every listed problem.",
+    ].join("\n\n")
+  }
+
+  throw new WorkflowError(
+    `step "${step.id}" failed text fallback after ${attemptsDone} attempt` +
+      `${attemptsDone === 1 ? "" : "s"}:\n  - ` +
+      `${attempts.join("\n  - ") || "(no diagnostics collected)"}`,
+  )
 }
+
 
 /** True when an error indicates a thinking model rejected the forced structured-output call. */
 function isThinkingRejection(e) {

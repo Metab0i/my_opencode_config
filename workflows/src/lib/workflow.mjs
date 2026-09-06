@@ -17,6 +17,7 @@
  *   missingAgents           - which step.agent names are NOT in the config agent list
  *   normalizeModel          - "provider/model" | {providerID,modelID} -> SDK shape
  *   extractJson(text)       - pull a JSON object/array out of free-form text (fallback)
+ *   validateAgainstSchema   - lightweight structural schema check (fallback-path safety)
  *   pickVariant(thinking)   - choose a variant id for a step's thinking request
  */
 
@@ -40,6 +41,10 @@ const OutputFormat = z.discriminatedUnion("type", [
     schema: JsonSchema,
     retryCount: z.number().int().nonnegative().optional(),
     fallback: z.enum(["text"]).optional().default("text"),
+    // Fallback fix-loop: after the structured path fails and the text fallback produces
+    // invalid JSON, re-prompt the model (feeding back what was wrong) up to N times.
+    // Default (from the runner) is 3; a step can override with an explicit positive int.
+    fixRetries: z.number().int().positive().optional(),
   }),
   z.object({ type: z.literal("text") }),
 ])
@@ -239,6 +244,104 @@ export function extractJson(text, maxLen = 200_000) {
     }
   }
   throw new Error(`extractJson: no valid JSON object/array found in response`)
+}
+
+/**
+ * Lightweight structural validation of a parsed JSON value against a (subset of) a JSON
+ * Schema. Dependency-free; this is deliberately NOT a full JSON Schema validator. It
+ * enforces exactly what routing + templating depend on:
+ *
+ *   - required fields are present (recursively), and
+ *   - present values' types match the declared `type` (string/number/integer/boolean/
+ *     object/array), recursing into object `properties` and array `items`.
+ *
+ * Ignored (by design): enum/const, min/max*, pattern/format, additionalProperties,
+ * oneOf/anyOf/allOf. Extra keys are tolerated — only missing/wrong-shaped fields fail.
+ *
+ * @param {unknown} value - the parsed JSON (from extractJson) to check
+ * @param {Record<string, unknown>} schema - the step's declared json_schema
+ * @returns {{ok: true} | {ok: false, errors: string[]}} - errors are plain-language,
+ *   human-readable messages like `required field ".verdict" missing` or
+ *   `"foundIssues" expected array, got string` (paths are JSON-pointer-ish, prefixed sorry ".").
+ */
+export function validateAgainstSchema(value, schema) {
+  const errors = []
+  validateNode(value, schema, "", errors)
+  return errors.length ? { ok: false, errors } : { ok: true }
+}
+
+function validateNode(value, schema, path, errors) {
+  if (schema == null || typeof schema !== "object") return
+
+  const type = schema.type
+  const present = value !== undefined && value !== null
+
+  // Missing/null against a declared type.
+  if (!present) {
+    if (type) errors.push(`expected ${type} at ${atPath(path)}, got ${describe(value)}`)
+    return
+  }
+
+  if (type === "object") {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      errors.push(`expected object at ${atPath(path)}, got ${describe(value)}`)
+      return
+    }
+    const props = schema.properties && typeof schema.properties === "object" ? schema.properties : {}
+    for (const key of schema.required ?? []) {
+      if (value[key] === undefined || value[key] === null) {
+        errors.push(`required field ${JSON.stringify(atPath(`${path}.${key}`))} missing`)
+      }
+    }
+    for (const [key, sub] of Object.entries(props)) {
+      // Skip null/missing values: `required` (above) already flags the missing-required
+      // case, and recursing here would double-report a null that failed a required check.
+      if (value[key] === undefined || value[key] === null) continue
+      validateNode(value[key], sub, `${path}.${key}`, errors)
+    }
+    return
+  }
+
+  if (type === "array") {
+    if (!Array.isArray(value)) {
+      errors.push(`expected array at ${atPath(path)}, got ${describe(value)}`)
+      return
+    }
+    if (schema.items && typeof schema.items === "object") {
+      value.forEach((item, i) => validateNode(item, schema.items, `${path}[${i}]`, errors))
+    }
+    return
+  }
+
+  // Scalar types.
+  const t = typeof value
+  const ok =
+    type === "string"
+      ? t === "string"
+      : type === "number"
+        ? t === "number"
+        : type === "integer"
+          ? t === "number" && Number.isInteger(value)
+          : type === "boolean"
+            ? t === "boolean"
+            : true // unknown/untyped -> accept anything
+  if (!ok) errors.push(`expected ${type} at ${atPath(path)}, got ${describe(value)}`)
+}
+
+/**
+ * Render an internal path ("" for root, else like ".detail.n" or ".issues[0]") as a
+ * JSON-path label: root -> "$", nested -> "$.detail.n" / "$.issues[0]".
+ */
+function atPath(path) {
+  return path ? `$${path}` : "$"
+}
+
+/** Short, readable description of a JS value for diagnostic messages. */
+function describe(value) {
+  if (value === undefined) return "missing"
+  if (value === null) return "null"
+  if (Array.isArray(value)) return "array"
+  return typeof value
 }
 
 /** Find the index of the balanced close for the opener at `start`, or -1. */
