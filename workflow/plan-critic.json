@@ -14,6 +14,7 @@
     {
       "id": "plan",
       "agent": "plan-json",
+      "thinking": "off",
       "prompt": [
         "Request to plan:\n\n{{input.request}}",
         "Prior critic findings to address (from the previous iteration, if any):\n{{critic.foundIssues || (none yet — first pass)}}"
@@ -32,6 +33,7 @@
     {
       "id": "critic",
       "agent": "critic-json",
+      "thinking": "off",
       "prompt": "Original request:\n{{input.request}}\n\nPlan to critique:\n{{plan.plan}}",
       "output": {
         "type": "json_schema",

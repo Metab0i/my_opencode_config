@@ -14,6 +14,7 @@
     {
       "id": "build",
       "agent": "build",
+      "thinking": "off",
       "prompt": [
         "Implement the following task:\n\n{{input.request}}",
         "Follow ~/.config/opencode/instructions/build-principles.md. Read the plan at plan_path() first if one exists.",
@@ -33,6 +34,7 @@
     {
       "id": "review",
       "agent": "reviewer-json",
+      "thinking": "off",
       "prompt": "Original request:\n{{input.request}}\n\nImplementer's summary:\n{{build.summary}}",
       "output": {
         "type": "json_schema",

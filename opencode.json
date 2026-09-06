@@ -24,7 +24,6 @@
     },
     "plan-json": {
       "prompt": "{file:./prompts/plan-json.md}",
-      "model": "opencode-go/kimi-k3",
       "temperature": 0.1,
       "mode": "subagent",
       "permission": {
@@ -41,7 +40,6 @@
     },
     "critic-json": {
       "prompt": "{file:./prompts/critic-json.md}",
-      "model": "opencode-go/kimi-k3",
       "temperature": 0.1,
       "mode": "subagent",
       "permission": {
@@ -72,7 +70,6 @@
     },
     "reviewer-json": {
       "prompt": "{file:./prompts/reviewer-json.md}",
-      "model": "opencode-go/kimi-k3",
       "temperature": 0.1,
       "mode": "subagent",
       "permission": {
@@ -96,7 +93,7 @@
         "grep": "allow",
         "list": "allow",
         "edit": { "*": "ask", "/tmp/**": "allow" },
-        "bash": { "*": "deny", "node ~/.config/opencode/scripts/workflow-run.mjs *": "allow" },
+        "bash": { "*": "deny", "node ~/.config/opencode/workflows/src/workflow-run.mjs *": "allow" },
         "task": "deny",
         "question": "deny"
       }

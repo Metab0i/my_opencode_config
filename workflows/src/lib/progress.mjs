@@ -44,18 +44,25 @@ export class ProgressReporter {
    * Emit a stage marker and reset per-stage counters. The event stream is started lazily
    * on first use.
    */
-  async start({ label, agent, model, index, total }) {
+  async start({ label, agent, model, index, total, maxToolCalls, maxRepeat, onLoop }) {
     this._stage = {
       label,
       agent: agent ?? "?",
       model: model ? `${model.providerID}/${model.modelID}` : "default",
       index: index ?? null,
       total: total ?? null,
+      maxToolCalls: maxToolCalls ?? 40,
+      maxRepeat: maxRepeat ?? 8,
+      onLoop: onLoop ?? null,
       t0: Date.now(),
       tokens: undefined, // latest token snapshot for this stage
       toolCount: 0,
       reasoningTokens: 0,
       lastReasoningFlush: 0,
+      repeat: new Map(), // `${tool}:${JSON.stringify(input)}` -> consecutive count
+      lastCallKey: null, // key of the previous tool call (for consecutive-repeat tracking)
+      loopAborted: false,
+      onLoop: null, // callback(reason) invoked on loop detection (set by caller)
     }
     const nth = this._stage.index != null ? `[${this._stage.index}${this._stage.total != null ? `/${this._stage.total}` : ""}] ` : ""
     console.error(
@@ -220,9 +227,40 @@ export class ProgressReporter {
     this._seenTool.add(part.id)
     this._stage.toolCount++
 
+    // Loop detection: (1) total tool-call budget, (2) repeated identical (tool, input).
+    const input = state?.input
+    let inputKey = input == null ? "" : typeof input === "string" ? input : JSON.stringify(input)
+    const callKey = `${name}:${inputKey}`
+    if (this._stage.lastCallKey === callKey) {
+      this._stage.repeat.set(callKey, (this._stage.repeat.get(callKey) ?? 0) + 1)
+    } else {
+      this._stage.lastCallKey = callKey
+      this._stage.repeat.set(callKey, 1)
+    }
+    const repeatCount = this._stage.repeat.get(callKey) ?? 1
+    if (!this._stage.loopAborted) {
+      if (this._stage.toolCount > this._stage.maxToolCalls) {
+        this._abortLoopOrFlag(`exceeded maxToolCalls (${this._stage.maxToolCalls})`)
+      } else if (repeatCount >= this._stage.maxRepeat) {
+        this._abortLoopOrFlag(
+          `repeated ${name} ${this._stage.maxRepeat}× (${truncate(inputKey, 60)})`,
+        )
+      }
+    }
+
     const brief = summarizeToolInput(state)
     const arrow = state.status === "completed" ? "✓" : state.status === "error" ? "✗" : "▸"
     this._emitActivity(`${arrow} ${name}${brief ? ` · ${brief}` : ""}`)
+  }
+
+  /** Fire the loop callback once; fall back to a console warning if the caller set none. */
+  _abortLoopOrFlag(reason) {
+    this._stage.loopAborted = true
+    if (this._stage.onLoop) {
+      this._stage.onLoop(reason)
+      return
+    }
+    console.error(`  └─ [loop] step "${this._stage.label}" suspected loop: ${reason}`)
   }
 
   _emitActivity(text) {

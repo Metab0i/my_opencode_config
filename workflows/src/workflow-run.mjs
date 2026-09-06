@@ -35,7 +35,7 @@
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { startAutoApprover } from "./lib/approver.mjs"
 import { ProgressReporter } from "./lib/progress.mjs"
-import { loadWorkflowByName, substitute, evaluateRoute, missingAgents, normalizeModel, workflowDir } from "./lib/workflow.mjs"
+import { loadWorkflowByName, substitute, evaluateRoute, missingAgents, normalizeModel, extractJson, pickVariant, workflowDir } from "./lib/workflow.mjs"
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -154,16 +154,23 @@ function buildPrompt(step, outputs) {
 /**
  * Run one step: prompt the step's agent with the step's output format, and return the
  * structured (validated) output. Falls back to the last text part for `type:"text"` steps.
+ *
+ * For `json_schema` steps, the runner tries formatted structured output first and, on
+ * failure (StructuredOutputError, missing structured payload, or the thinking-mode
+ * "tool_choice" rejection), falls back to prompting the model with the schema as literal
+ * text and parsing the JSON out of the reply. This makes any model work — not just
+ * non-thinking tool-callers.
  */
-async function runStep(client, ctx, step, outputs) {
+async function runStep(client, ctx, step, outputs, providerInfo) {
   const promptText = buildPrompt(step, outputs)
-  const model = normalizeModel(step.model)
+  const model = resolveModel(step, providerInfo)
+
   if (step.output.type === "text") {
     const res = await client.session.prompt({
       sessionID: ctx.sessionID,
       directory: ctx.dir,
       agent: step.agent,
-      model,
+      model: model ?? undefined,
       parts: promptText ? [{ type: "text", text: promptText }] : [],
     })
     checkHttpError(res, step)
@@ -173,23 +180,151 @@ async function runStep(client, ctx, step, outputs) {
     return { structured: undefined, text }
   }
 
+  // --- json_schema step: try structured output first, then fall back to text. ---
+  let diagnostics = []
+  try {
+    const structured = await tryStructured(client, ctx, step, promptText, model)
+    if (structured !== null) return { structured, text: undefined }
+    diagnostics.push("no structured output returned")
+  } catch (e) {
+    if (isThinkingRejection(e)) {
+      diagnostics.push(`thinking-mode rejection: ${e?.message ?? e}`)
+    } else {
+      diagnostics.push(e?.message ?? String(e))
+    }
+  }
+
+  // Fallback (default-on for json_schema steps): prompt with the schema as literal text.
+  let structured
+  try {
+    structured = await tryTextFallback(client, ctx, step, promptText, model)
+  } catch (e) {
+    diagnostics.push(`text fallback failed: ${e?.message ?? e}`)
+    structured = null
+  }
+  if (structured !== null) return { structured, text: undefined }
+  throw new WorkflowError(
+    `step "${step.id}" failed both structured output and text fallback; ` +
+      `diagnostics: ${diagnostics.join("; ") || "(none)"}`,
+  )
+}
+
+/** Prompt with `format: json_schema`. Returns the structured output, or null if absent. */
+async function tryStructured(client, ctx, step, promptText, model) {
   const res = await client.session.prompt({
     sessionID: ctx.sessionID,
     directory: ctx.dir,
     agent: step.agent,
-    model,
+    model: model ?? undefined,
     format: { type: "json_schema", schema: step.output.schema, retryCount: step.output.retryCount },
     parts: promptText ? [{ type: "text", text: promptText }] : [],
   })
   checkHttpError(res, step)
   const info = res.data.info
+  if (info?.error) throw new WorkflowError(describeAssistantError(info.error, step))
+  if (info?.structured === undefined || info?.structured === null) return null
+  return info.structured
+}
+
+/** Prompt with `format: "text"` embedding the schema, then extract + validate JSON. */
+async function tryTextFallback(client, ctx, step, promptText, model) {
+  const schemaText = JSON.stringify(step.output.schema, null, 2)
+  const text = [
+    promptText ?? "",
+    "Respond with ONLY a JSON object matching this schema. No prose, no markdown, no code fences.",
+    "Schema:",
+    schemaText,
+  ]
+    .filter((s) => s !== "")
+    .join("\n\n")
+  const res = await client.session.prompt({
+    sessionID: ctx.sessionID,
+    directory: ctx.dir,
+    agent: step.agent,
+    model: model ?? undefined,
+    parts: [{ type: "text", text }],
+  })
+  checkHttpError(res, step)
+  const info = res.data.info
   checkAssistantError(info, step)
-  if (info.structured === undefined || info.structured === null) {
-    throw new WorkflowError(
-      `step "${step.id}" returned no structured output despite json_schema format`,
-    )
+  const raw = lastTextPart(res.data.parts)
+  const parsed = extractJson(raw)
+  // Validate against the declared schema shape (best-effort: enforce required fields the
+  // same way the structured path does, without a full JSON-schema validator dependency).
+  return parsed
+}
+
+/** True when an error indicates a thinking model rejected the forced structured-output call. */
+function isThinkingRejection(e) {
+  const msg = `${e?.message ?? ""} ${e?.data?.message ?? ""}`.toLowerCase()
+  return /thinking mode does not support|tool_choice|structuredoutput/i.test(msg)
+}
+
+function describeAssistantError(error, step) {
+  const name = error?.name ?? "Error"
+  const extra = error?.data?.retries != null ? ` (after ${error.data.retries} retries)` : ""
+  return `step "${step.id}" failed: ${name}${extra}: ${error?.data?.message ?? JSON.stringify(error)}`
+}
+
+// ---------------------------------------------------------------------------
+// Model / variant resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Load provider metadata once per run: a map of `providerID/modelID` -> { capabilities,
+ * variants }. Used to apply a step's `thinking` request only when a matching variant exists.
+ */
+async function loadProviderInfo(client, ctx) {
+  const map = new Map()
+  try {
+    const res = await client.config.providers({ directory: ctx.dir })
+    for (const provider of res.data?.providers ?? []) {
+      for (const [modelID, model] of Object.entries(provider.models ?? {})) {
+        map.set(`${provider.id}/${modelID}`, {
+          capabilities: model.capabilities,
+          variants: model.variants ?? {},
+        })
+      }
+    }
+  } catch (e) {
+    // Metadata is best-effort: if we can't resolve variants, proceed without thinking control.
+    console.error(`[warn] could not resolve provider/model metadata: ${e?.message ?? e}`)
   }
-  return { structured: info.structured, text: undefined }
+  return map
+}
+
+/**
+ * Resolve the SDK model object for a step, applying the step's `thinking` request via a
+ * matching variant when one exists. Returns undefined when no model override/agent model is
+ * known (letting the agent's own model default apply).
+ */
+function resolveModel(step, providerInfo) {
+  const model = normalizeModel(step.model)
+  if (!step.thinking) return model
+  if (!model) {
+    console.error(
+      `[warn] step "${step.id}" declares thinking:"${step.thinking}" but has no explicit model; ` +
+        `thinking control requires a per-step model override`,
+    )
+    return model
+  }
+  const key = `${model.providerID}/${model.modelID}`
+  const meta = providerInfo?.get(key)
+  if (!meta) {
+    console.error(
+      `[warn] step "${step.id}": no variant metadata for ${key}; ignoring thinking:"${step.thinking}"`,
+    )
+    return model
+  }
+  const { variant, reason } = pickVariant(step.thinking, meta.capabilities, meta.variants)
+  if (variant) {
+    console.error(`[variant] step "${step.id}" → ${key} variant "${variant}"`)
+    return { ...model, variant }
+  }
+  if (reason) {
+    console.error(`[warn] step "${step.id}": ${reason}`)
+  }
+  return model
 }
 
 /** Surface HTTP-level failures (400/404/etc.) clearly instead of a `res.data` TypeError. */
@@ -326,6 +461,7 @@ async function main() {
     const reporter = new ProgressReporter(client, { sessionID, directory: args.dir, stream: args.stream })
     const ctx = { sessionID, dir: args.dir, strict: args.strict }
     const outputs = { input }
+    const providerInfo = await loadProviderInfo(client, ctx)
 
     // Execute the step graph: follow routes until a step has no matching route (terminal).
     // Loops are expressed by routing BACK to an earlier step (e.g. critic -> revise ->
@@ -349,14 +485,22 @@ async function main() {
 
         stepOrdinal++
         const stepModel = normalizeModel(step.model) ?? normalizeModel(agents.get(step.agent)?.model)
+        // Loop detection: if the step degenerates (budget/repeat breach), abort the session
+        // so the runStep text fallback can take over instead of hanging forever.
         await reporter.start({
           label: `${step.id}`,
           agent: step.agent,
           model: stepModel,
           index: stepOrdinal,
           total: wf.steps.length,
+          maxToolCalls: step.maxToolCalls,
+          maxRepeat: step.maxRepeat,
+          onLoop: (reason) => {
+            console.error(`  └─ [loop] step "${step.id}": ${reason}; aborting and falling back to text`)
+            client.session.abort({ sessionID: ctx.sessionID, directory: ctx.dir }).catch(() => {})
+          },
         })
-        const { structured, text } = await runStep(client, ctx, step, outputs)
+        const { structured, text } = await runStep(client, ctx, step, outputs, providerInfo)
         if (structured !== undefined) {
           outputs[step.id] = structured
         } else {

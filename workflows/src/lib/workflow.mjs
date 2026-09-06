@@ -9,12 +9,15 @@
  * isolation.
  *
  * Exports:
- *   WorkflowSchema      - zod schema for a workflow definition
- *   loadWorkflow(obj)   - validate + normalize a raw JSON object into a Workflow
- *   resolveWorkflowDir  - default workflows directory (~/.config/opencode/workflow)
- *   substitute(input)   - {{stepId.field}} template substitution (no code exec)
- *   evaluateRoute       - match a route's `when` against a step's structured output
- *   missingAgents       - which step.agent names are NOT in the config agent list
+ *   loadWorkflow(obj)       - validate + normalize a raw JSON object into a Workflow
+ *   loadWorkflowByName      - load + validate a workflow JSON file by name
+ *   workflowDir()           - default workflows directory (~/.config/opencode/workflow)
+ *   substitute(text,..)     - {{stepId.field}} template substitution (no code exec)
+ *   evaluateRoute           - match a route's `when` against a step's structured output
+ *   missingAgents           - which step.agent names are NOT in the config agent list
+ *   normalizeModel          - "provider/model" | {providerID,modelID} -> SDK shape
+ *   extractJson(text)       - pull a JSON object/array out of free-form text (fallback)
+ *   pickVariant(thinking)   - choose a variant id for a step's thinking request
  */
 
 import { z } from "zod"
@@ -29,9 +32,15 @@ import { join, sep } from "node:path"
 const JsonSchema = z.record(z.string(), z.unknown())
 
 // A step's output format. "text" means "no structured output" (read the text part);
-// "json_schema" means the model must emit JSON matching `schema`.
+// "json_schema" means the model must emit JSON matching `schema`. json_schema steps get a
+// text fallback by DEFAULT (fallback: "text" is accepted but optional); see runStep.
 const OutputFormat = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("json_schema"), schema: JsonSchema, retryCount: z.number().int().nonnegative().optional() }),
+  z.object({
+    type: z.literal("json_schema"),
+    schema: JsonSchema,
+    retryCount: z.number().int().nonnegative().optional(),
+    fallback: z.enum(["text"]).optional().default("text"),
+  }),
   z.object({ type: z.literal("text") }),
 ])
 
@@ -46,8 +55,7 @@ const Route = z.object({
 })
 
 // Model override: either "provider/model" or { providerID, modelID }. Allows a step to pin
-// a JSON-capable (non-thinking) model even when the referenced agent/default model is a
-// thinking model that can't emit structured output.
+// a model even when the referenced agent/default model differs.
 const Model = z.union([
   z.string().min(1),
   z.object({ providerID: z.string().min(1), modelID: z.string().min(1) }),
@@ -60,9 +68,17 @@ const Step = z.object({
   id: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "step id must be a valid identifier"),
   agent: z.string().min(1),
   model: Model.optional(),
+  // Thinking-mode control: "off" prefers a non-thinking variant, "on" prefers a thinking
+  // variant, or a literal variant id. The runner checks the model's available variants and
+  // only applies this if a matching variant exists (see pickVariant).
+  thinking: z.string().min(1).optional(),
   prompt: z.union([z.string(), z.array(z.string())]).optional(),
   output: OutputFormat,
   routes: z.array(Route).optional(),
+  // Loop-detection overrides (defaults live in the runner): abort the step if it makes more
+  // than maxToolCalls total tool calls or repeats the same (tool, input) maxRepeat times.
+  maxToolCalls: z.number().int().positive().optional(),
+  maxRepeat: z.number().int().positive().optional(),
   // parallel group (prototype): sibling steps run concurrently in child sessions.
   // `mergeInto` names the step id under which the group's outputs are stored (each child
   // step id still stores its own output too).
@@ -187,6 +203,159 @@ export function normalizeModel(model) {
     return { providerID: model.slice(0, slash), modelID: model.slice(slash + 1) }
   }
   return { providerID: model.providerID, modelID: model.modelID }
+}
+
+// ---------------------------------------------------------------------------
+// JSON extraction (text fallback)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a JSON value (object or array) from a free-form text response.
+ *
+ * The model may wrap valid JSON in markdown code fences or prefix it with prose. This
+ * strips ```json fences, then finds the first balanced `{...}` or `[...]` span and parses
+ * it. Only safe `JSON.parse` — no `eval`, ever. Returns the parsed value, or throws with a
+ * clear message when no valid JSON object/array is found.
+ *
+ * @param {string} text - the raw assistant text
+ * @param {number} maxLen - upper bound on characters scanned (guard against runaway input)
+ */
+export function extractJson(text, maxLen = 200_000) {
+  const s = String(text ?? "").slice(0, maxLen)
+  const stripped = s.replace(/```(?:json)?/gi, "```").replace(/```/g, "")
+  for (const open of ["{", "["]) {
+    const idx = stripped.indexOf(open)
+    if (idx === -1) continue
+    const close = open === "{" ? "}" : "]"
+    const end = matchBalanced(stripped, idx, open, close)
+    if (end === -1) continue
+    const candidate = stripped.slice(idx, end + 1)
+    try {
+      const val = JSON.parse(candidate)
+      if (val !== null && typeof val === "object") return val
+    } catch {
+      // keep scanning for the next opener
+      continue
+    }
+  }
+  throw new Error(`extractJson: no valid JSON object/array found in response`)
+}
+
+/** Find the index of the balanced close for the opener at `start`, or -1. */
+function matchBalanced(s, start, open, close) {
+  let depth = 0
+  let inString = false
+  let escape = false
+  for (let i = start; i < s.length; i++) {
+    const c = s[i]
+    if (inString) {
+      if (escape) escape = false
+      else if (c === "\\") escape = true
+      else if (c === '"') inString = false
+      continue
+    }
+    if (c === '"') {
+      inString = true
+      continue
+    }
+    if (c === open) depth++
+    else if (c === close) {
+      depth--
+      if (depth === 0) return i
+    }
+  }
+  return -1
+}
+
+// ---------------------------------------------------------------------------
+// Thinking-mode / variant selection
+// ---------------------------------------------------------------------------
+
+/**
+ * Choose a model variant to apply for a step's `thinking` request, given the model's
+ * capabilities and the set of variants the provider exposes.
+ *
+ * The runner is expected to resolve the model via `config.providers()` (each Provider
+ * exposes `models[key]` with `capabilities.reasoning` and `variants`). This helper decides:
+ *   - `thinking: "off"`  -> prefer a variant that disables/`none` reasoning, else undefined.
+ *   - `thinking: "on"`   -> prefer a variant that enables/high reasoning, else undefined.
+ *   - `thinking: "<id>"` -> that exact variant id if it exists, else undefined.
+ *
+ * Returns `{ variant }` (the id to pass as `model.variant`) or `{ variant: undefined,
+ * reason }` when no matching variant exists so the caller can log a clear message listing
+ * what WAS available.
+ *
+ * @param {string|undefined} thinking - the step's `thinking` request
+ * @param {{reasoning?: boolean}} capabilities - the model's capability flags
+ * @param {Record<string, unknown>|undefined} variants - the model's variant map
+ */
+export function pickVariant(thinking, capabilities, variants) {
+  const variantMap = variants && typeof variants === "object" ? variants : {}
+  const names = Object.keys(variantMap)
+  const isReasoningModel = !!capabilities?.reasoning
+
+  if (!thinking) return { variant: undefined }
+
+  // Literal variant id: use it only if it actually exists.
+  if (thinking !== "off" && thinking !== "on") {
+    if (names.includes(thinking)) return { variant: thinking }
+    return {
+      variant: undefined,
+      reason:
+        `variant "${thinking}" does not exist for this model` +
+        (names.length ? ` (available: ${names.join(", ")})` : ` (no variants available)`),
+    }
+  }
+
+  // "off" / "on": match by name, then by config heuristics.
+  const wantOff = thinking === "off"
+
+  // 1) Name match first (e.g. OpenAI "none"/"minimal"/"low", Anthropic "high"/"max").
+  const offNames = ["none", "no-reasoning", "noreasoning", "fast", "minimal", "low"]
+  const onNames = ["high", "max", "xhigh", "thinking"]
+  const namePool = wantOff ? offNames : onNames
+  for (const name of namePool) {
+    if (names.includes(name)) return { variant: name }
+  }
+
+  // 2) Config heuristic: inspect each variant's options for reasoning-disabling/enabling.
+  for (const name of names) {
+    const v = variantMap[name]
+    const opts = v && typeof v === "object" ? v : {}
+    const disables = signalReasoning(opts) === false
+    const enables = signalReasoning(opts) === true
+    if (wantOff && disables) return { variant: name }
+    if (!wantOff && enables) return { variant: name }
+  }
+
+  // No matching variant. "off" on an already-non-reasoning model is a no-op success.
+  if (wantOff && !isReasoningModel) return { variant: undefined, reason: null }
+  return {
+    variant: undefined,
+    reason: names.length
+      ? `no ${wantOff ? "non-thinking" : "thinking"} variant available (available: ${names.join(", ")})`
+      : `no variants available for this model`,
+  }
+}
+
+/**
+ * Heuristic: does a variant's options disable or enable reasoning? Inspects the common
+ * option shapes: `reasoningEffort` (OpenAI), `thinking.type`/`thinking.disabled` (Anthropic),
+ * and a top-level `reasoning` boolean. Returns true (enables), false (disables), or null.
+ */
+function signalReasoning(opts) {
+  if (opts.reasoning === false || opts.reasoning?.type === "disabled") return false
+  if (opts.reasoning === true || opts.reasoning?.type === "enabled") return true
+  if (typeof opts.reasoningEffort === "string") {
+    const e = opts.reasoningEffort.toLowerCase()
+    if (["none", "off", "minimal", "low"].includes(e)) return false
+    if (["medium", "high", "xhigh", "max"].includes(e)) return true
+  }
+  if (opts.thinking != null && typeof opts.thinking === "object") {
+    if (opts.thinking.type === "disabled") return false
+    if (opts.thinking.type === "enabled") return true
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------
