@@ -63,11 +63,27 @@ node ~/.config/opencode/workflows/src/workflow-run.mjs \
 | `--auto` | Auto-approve permission/question requests (headless). Required for unattended runs. |
 | `--stream` | Stream token-level output to stderr. |
 | `--dir <path>` | Session directory (default: current working directory). |
+| `--out <dir>` | Directory to persist step outcomes (default: `~/tmp/<sessionID>/<name>`). |
 | `--url <baseUrl>` | Connect to an **already-running** OpenCode server (client-only). Also read from `OPENCODE_SERVER_URL`. Preferred inside an existing session — avoids spawning a second server. |
 | `--port <n>` | When no `--url`: server port to spawn on (`0` = random). |
 | `--strict` | Treat warnings (e.g. a primary interactive agent) as errors. |
 
 Exit codes: `0` = completed (reached a terminal step), `1` = fatal, `2` = usage error.
+
+### Outcome & hand-off (relay contract)
+
+When a workflow finishes it prints a terminal JSON outcome block — `{ status: "complete", summary, instruction }` — to stdout **and** persists the results to disk:
+
+```
+~/tmp/<sessionID>/<workflow-name>/
+├── result.json           # metadata + full accumulated outputs + workDir + outputsDir
+└── steps/<stepId>.json   # one file per step, that step's structured output
+```
+
+This is the workflow's deliverable. The agent that invoked the workflow relays it to the
+user **verbatim and takes no further action** — see `instructions/workflow-handoff.md`
+(routed from `AGENTS.md`). Outcomes are *interactable*: a later agent (or the user) reads
+`result.json` / `steps/<stepId>.json` directly instead of re-deriving them.
 
 ---
 

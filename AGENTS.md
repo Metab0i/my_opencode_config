@@ -30,6 +30,9 @@ so be concise and deliberate.
 For task-specific rules (e.g. how to handle code, plans, reviews, tests), read the
 relevant instruction file. These live under ~/.config/opencode/instructions/.
 
+- Handling code/builds/tests → `instructions/build-principles.md`.
+- Receiving a declarative workflow's output → `instructions/workflow-handoff.md`.
+
 ## Clean up after yourself
 - Remove debugging/intel-gathering artifacts once the task is satisfied.
 - If spinning, stop and consult the user.

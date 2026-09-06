@@ -16,4 +16,10 @@ Run it exactly like this (substitute the two quoted arguments):
 Where WORKFLOW_NAME is the workflow to run (e.g. `plan-critic`), or if the user named it
 inline, use that name.
 
-Then report the runner's stage markers and the final JSON summary back to the user.
+When the runner finishes it prints a terminal JSON outcome block (`status: "complete"`).
+That is the workflow's deliverable. Relay it to the user verbatim and take no further action:
+
+1. Summarize the important outcome in a few sentences (verdicts, issues found, plan text).
+2. Tell the user the artifact directory (`summary.artifactsDir`) so they can read the results.
+3. Do not plan, build, review, or run anything off the back of this output. Stop and await
+   the user's instruction.

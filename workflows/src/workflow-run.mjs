@@ -11,7 +11,7 @@
  * Usage:
  *   node workflow-run.mjs --workflow <name> --request "<input>"
  *        [--input <json-object>] [--auto] [--stream] [--dir <path>]
- *        [--url <baseUrl> | --port <n>] [--strict]
+ *        [--out <dir>] [--url <baseUrl> | --port <n>] [--strict]
  *
  *   --workflow <name>   workflow definition (basename, no .json) — required
  *   --request <text>    user input line (convenience for an input schema expecting a request)
@@ -19,6 +19,7 @@
  *   --auto              auto-approve permissions/questions (headless)
  *   --stream            stream token-level output to stderr
  *   --dir <path>        session directory (default cwd)
+ *   --out <dir>         directory to persist step outcomes (default /tmp/<sessionID>/<name>)
  *   --url <baseUrl>     connect to an ALREADY-RUNNING opencode server (client-only mode)
  *                       instead of spawning one (e.g. http://127.0.0.1:4096). Also read
  *                       from OPENCODE_SERVER_URL. This is the preferred mode inside an
@@ -33,6 +34,9 @@
  */
 
 import { createOpencode, createOpencodeClient } from "@opencode-ai/sdk/v2"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { join, resolve } from "node:path"
+import { homedir } from "node:os"
 import { startAutoApprover } from "./lib/approver.mjs"
 import { ProgressReporter } from "./lib/progress.mjs"
 import { loadWorkflowByName, substitute, evaluateRoute, missingAgents, normalizeModel, extractJson, validateAgainstSchema, pickVariant, workflowDir } from "./lib/workflow.mjs"
@@ -50,6 +54,7 @@ function usage() {
   --dir <path>         session directory (default cwd)
   --url <baseUrl>      connect to an existing server (client-only, preferred in-session)
   --port <n>           server port to spawn when no --url (default 0 = random)
+  --out <dir>          persist step outcomes here (default /tmp/<sessionID>/<workflow>)
   --strict             treat warnings as errors (exit 1)
 `
 }
@@ -64,6 +69,7 @@ function parseArgs(argv) {
     dir: process.cwd(),
     url: process.env.OPENCODE_SERVER_URL || null,
     port: 0,
+    out: null,
     strict: false,
   }
   for (let i = 0; i < argv.length; i++) {
@@ -100,6 +106,9 @@ function parseArgs(argv) {
         }
         break
       }
+      case "--out":
+        out.out = next()
+        break
       case "--strict":
         out.strict = true
         break
@@ -466,6 +475,47 @@ async function resolveAgents(client, ctx, wf) {
 }
 
 // ---------------------------------------------------------------------------
+// Outcome persistence
+// ---------------------------------------------------------------------------
+
+/**
+ * Persist a workflow's final outcomes to disk so the parent session can read/act on them
+ * (the workflow runs in its own ephemeral session; without this, its `outputs` map — the plan
+ * text, verdicts, issues, etc. — is lost when the runner exits).
+ *
+ * Layout (default /tmp/<sessionID>/<workflow-name>/):
+ *   result.json          — { workflow, sessionID, iterations, outputPaths, artifactsDir, workDir }
+ *   steps/<stepId>.json  — one file per step, that step's raw structured output
+ *
+ * Step agents that wrote files (a plan file, code edits) write into the session's working
+ * directory `args.dir`, which is recorded as `workDir` below. Returns the outcome directory.
+ */
+function persistOutcomes(wf, sessionID, outputs, args, iterations) {
+  const dir =
+    args.out && args.out.trim()
+      ? resolve(args.out)
+      : join(homedir(), "tmp", sessionID, wf.name)
+  mkdirSync(join(dir, "steps"), { recursive: true })
+
+  const stepsDir = join(dir, "steps")
+  for (const [id, value] of Object.entries(outputs)) {
+    if (id === "input") continue
+    writeFileSync(join(stepsDir, `${id}.json`), `${JSON.stringify(value, null, 2)}\n`)
+  }
+
+  const result = {
+    workflow: wf.name,
+    sessionID,
+    iterations,
+    outputs: Object.fromEntries(Object.entries(outputs).filter(([k]) => k !== "input")),
+    outputsDir: stepsDir,
+    workDir: args.dir,
+  }
+  writeFileSync(join(dir, "result.json"), `${JSON.stringify(result, null, 2)}\n`)
+  return dir
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 async function main() {
@@ -590,15 +640,36 @@ async function main() {
       }
 
       reporter.summary()
+
+      // Persist outcomes to a discoverable directory so the parent session can interact with
+      // the results (read plans, files, structured outputs) instead of running blind.
+      const outDir = persistOutcomes(wf, sessionID, outputs, args, iterations)
+      const finalOutputs = Object.fromEntries(
+        Object.entries(outputs).filter(([k]) => k !== "input"),
+      )
+
+      // Terminal outcome block: this is the workflow's deliverable. It is written to stdout
+      // for the invoking agent to relay VERBATIM and take no further action on.
       const summary = {
         workflow: wf.name,
         sessionID,
         iterations,
-        outputs: Object.fromEntries(
-          Object.entries(outputs).filter(([k]) => k !== "input"),
-        ),
+        outputs: finalOutputs,
+        artifactsDir: outDir,
       }
-      console.log(JSON.stringify(summary, null, 2))
+      console.log(
+        JSON.stringify(
+          {
+            status: "complete",
+            summary,
+            instruction:
+              "Workflow finished. Relay the outcome to the user verbatim and take no further " +
+              "action beyond reading the artifacts listed below. Await the user's instruction.",
+          },
+          null,
+          2,
+        ),
+      )
     } finally {
       reporter.close()
     }
