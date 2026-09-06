@@ -1,8 +1,9 @@
-# Software Production Principles
+# Build Principles
 
-Read and follow before acting.
+Build-specific rules. Read and follow before building software or touching code.
+General fundamentals live in ~/.config/opencode/AGENTS.md.
 
-## Reuse-first
+## Reuse-first (build)
 - Prefer small, targeted adjustments to existing sources of truth and extension
   points over new logic, mappings, or state models.
 - Introduce something new only if reuse provably fails without regression. Preserve
@@ -11,11 +12,9 @@ Read and follow before acting.
   insufficient, what would regress if reused, why the new thing is the smallest safe change.
 - A plan introducing a parallel source of truth without this audit is incomplete.
 
-## Simplicity
+## Simplicity (build)
 - Fewest steps and least data that don't add vagueness or obfuscation.
 - No excessive abstraction; don't extract something used in only one place.
-- Reuse existing functionality over reimplementing it.
-- Check whether planned functionality already exists to avoid duplicate/redundant computation.
 - Place code in contextually fitting parts of the codebase.
 
 ## Plan template
@@ -36,10 +35,7 @@ Read and follow before acting.
 - Comment functions: purpose, arguments, returns, and what they throw / when.
 - Comment modules with a usage overview at the top.
 
-## Cleanup
-- Remove debugging/intel-gathering code once the task is satisfied.
-
-## Feedback
+## Feedback (build)
 - Check in before running the system or tests you introduced.
 - Run headlessly where possible. When investigating, maximize your own feedback:
   verbose/strict flags + stderr and exit codes; temporary logging around the failure;

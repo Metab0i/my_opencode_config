@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "default_agent": "research",
+  "default_agent": "plan",
   "permission": {
     "*": "ask"
   },
@@ -16,10 +16,42 @@
         "webfetch": "allow",
         "edit": { "*": "ask", "/tmp/**": "allow" },
         "bash": "ask",
-        "task": { "*": "deny", "critic": "allow", "explore": "allow" },
+        "task": "deny",
         "question": "allow",
         "plan_path": "allow",
         "external_directory": { "/tmp/**": "allow" }
+      }
+    },
+    "plan-json": {
+      "prompt": "{file:./prompts/plan-json.md}",
+      "model": "opencode-go/kimi-k3",
+      "temperature": 0.1,
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "question": "deny"
+      }
+    },
+    "critic-json": {
+      "prompt": "{file:./prompts/critic-json.md}",
+      "model": "opencode-go/kimi-k3",
+      "temperature": 0.1,
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "question": "deny"
       }
     },
     "build": {
@@ -32,10 +64,41 @@
         "webfetch": "allow",
         "edit": "allow",
         "bash": "ask",
-        "task": { "*": "deny", "reviewer": "allow" },
+        "task": "deny",
         "question": "allow",
         "plan_path": "allow",
         "external_directory": { "/tmp/**": "allow" }
+      }
+    },
+    "reviewer-json": {
+      "prompt": "{file:./prompts/reviewer-json.md}",
+      "model": "opencode-go/kimi-k3",
+      "temperature": 0.1,
+      "mode": "subagent",
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "edit": "deny",
+        "bash": { "*": "deny", "git diff*": "allow", "git status*": "allow", "git log*": "allow", "git show*": "allow" },
+        "task": "deny",
+        "question": "deny"
+      }
+    },
+    "workflow": {
+      "prompt": "{file:./prompts/workflow-prompt.md}",
+      "mode": "subagent",
+      "hidden": true,
+      "temperature": 0.1,
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "edit": { "*": "ask", "/tmp/**": "allow" },
+        "bash": { "*": "deny", "node ~/.config/opencode/scripts/workflow-run.mjs *": "allow" },
+        "task": "deny",
+        "question": "deny"
       }
     }
   }
