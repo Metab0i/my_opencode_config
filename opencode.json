@@ -6,7 +6,7 @@
   },
   "agent": {
     "plan": {
-      "prompt": "{file:./prompts/plan-prompt.md}",
+      "prompt": "{file:./agents/plan.agent.md}",
       "temperature": 0.1,
       "permission": {
         "read": "allow",
@@ -22,38 +22,8 @@
         "external_directory": { "/tmp/**": "allow" }
       }
     },
-    "plan-json": {
-      "prompt": "{file:./prompts/plan-json.md}",
-      "temperature": 0.1,
-      "mode": "subagent",
-      "permission": {
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "list": "allow",
-        "webfetch": "allow",
-        "edit": "deny",
-        "bash": "deny",
-        "task": "deny",
-        "question": "deny"
-      }
-    },
-    "critic-json": {
-      "prompt": "{file:./prompts/critic-json.md}",
-      "temperature": 0.1,
-      "mode": "subagent",
-      "permission": {
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "edit": "deny",
-        "bash": "deny",
-        "task": "deny",
-        "question": "deny"
-      }
-    },
     "build": {
-      "prompt": "{file:./prompts/build-prompt.md}",
+      "prompt": "{file:./agents/build.agent.md}",
       "permission": {
         "read": "allow",
         "glob": "allow",
@@ -66,36 +36,6 @@
         "question": "allow",
         "plan_path": "allow",
         "external_directory": { "/tmp/**": "allow" }
-      }
-    },
-    "reviewer-json": {
-      "prompt": "{file:./prompts/reviewer-json.md}",
-      "temperature": 0.1,
-      "mode": "subagent",
-      "permission": {
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "edit": "deny",
-        "bash": { "*": "deny", "git diff*": "allow", "git status*": "allow", "git log*": "allow", "git show*": "allow" },
-        "task": "deny",
-        "question": "deny"
-      }
-    },
-    "workflow": {
-      "prompt": "{file:./prompts/workflow-prompt.md}",
-      "mode": "subagent",
-      "hidden": true,
-      "temperature": 0.1,
-      "permission": {
-        "read": "allow",
-        "glob": "allow",
-        "grep": "allow",
-        "list": "allow",
-        "edit": { "*": "ask", "/tmp/**": "allow" },
-        "bash": { "*": "deny", "node ~/.config/opencode/workflows/src/workflow-run.mjs *": "allow" },
-        "task": "deny",
-        "question": "deny"
       }
     }
   }
