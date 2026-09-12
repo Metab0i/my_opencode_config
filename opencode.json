@@ -6,7 +6,7 @@
   },
   "agent": {
     "plan": {
-      "prompt": "{file:./agents/plan.agent.md}",
+      "prompt": "{file:./prompts/plan.md}",
       "temperature": 0.1,
       "permission": {
         "read": "allow",
@@ -22,8 +22,29 @@
         "external_directory": { "/tmp/**": "allow" }
       }
     },
+    "reviewer": {
+      "prompt": "{file:./prompts/reviewer.md}",
+      "mode": "primary",
+      "temperature": 0.1,
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "edit": "deny",
+        "bash": {
+          "*": "ask",
+          "node ~/.config/opencode/skills/verify-json/scripts/verifyjson.mjs *": "allow"
+        },
+        "task": "deny",
+        "question": "allow",
+        "skill": "allow",
+        "external_directory": { "/tmp/**": "allow" }
+      }
+    },
     "build": {
-      "prompt": "{file:./agents/build.agent.md}",
+      "prompt": "{file:./prompts/build.md}",
       "permission": {
         "read": "allow",
         "glob": "allow",
