@@ -1,7 +1,7 @@
 // Functional verification harness for the budget plugin (mock client, no live opencode).
 // Run: OPENCODE_BUDGET_STATE_FILE=/tmp/opencode/bt-state.json \
 //        node --experimental-strip-types ~/.config/opencode/tests/budget/budget-test.mjs
-import { BudgetPlugin } from "../../plugins/budget.ts"
+import { BudgetPlugin, shouldBlock, gateMessage, ALLOW_OVER_BUDGET } from "../../plugins/budget.ts"
 
 const sessions = {
   root: { id: "root", parentID: undefined },
@@ -68,5 +68,46 @@ const out5 = { system: [] }
 await plugin["experimental.chat.system.transform"]({ sessionID: "root" }, out5)
 console.log("EXHAUSTED BLOCK:\n" + out5.system[0] + "\n")
 if (!out5.system[0].includes("question tool")) throw new Error("ask-mode exhausted text missing")
+
+// 6. gate: over budget -> non-exempt tool blocked (spend $3.73 vs budget $3.50)
+if (typeof plugin["tool.execute.before"] !== "function") throw new Error("gate hook not registered in ask mode")
+let gateBlocked = false
+try {
+  await plugin["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "c1" })
+} catch (e) {
+  gateBlocked = true
+  if (!String(e.message).includes("blocked")) throw new Error("gate message wrong: " + e.message)
+}
+if (!gateBlocked) throw new Error("bash should be blocked over budget")
+
+// 7. gate: exempt recovery tools still run over budget
+await plugin["tool.execute.before"]({ tool: "question", sessionID: "root", callID: "c2" })
+await plugin["tool.execute.before"]({ tool: "budget_extend", sessionID: "root", callID: "c3" })
+
+// 8. gate: below budget -> allowed (fresh plugin + fresh session)
+const freshClient = {
+  session: {
+    get: async ({ path }) => ({ data: { id: path.id } }),
+    messages: async () => ({ data: [] }),
+    children: async () => ({ data: [] }),
+  },
+}
+const freshPlugin = await BudgetPlugin({ client: freshClient })
+await freshPlugin["tool.execute.before"]({ tool: "bash", sessionID: "fresh", callID: "c4" }) // must not throw
+
+// 9. pure policy: >= semantics, allowlist, message contents, mode tails
+if (shouldBlock(1.0, 2, "bash", "ask") !== null) throw new Error("below limit should not block")
+if (typeof shouldBlock(2.0, 2, "bash", "ask") !== "string") throw new Error("cost === limit should block")
+const overMsg = shouldBlock(2.5, 2, "bash", "ask")
+if (typeof overMsg !== "string") throw new Error("cost > limit should block")
+if (!overMsg.includes("$2.50") || !overMsg.includes("$2.00") || !overMsg.includes("bash")) throw new Error("gate message missing figures/tool")
+if (shouldBlock(9, 2, "budget_extend", "ask") !== null) throw new Error("budget_extend should be exempt")
+if (shouldBlock(9, 2, "question", "ask") !== null) throw new Error("question should be exempt")
+if (shouldBlock(9, 2, "question", "pressure") !== null) throw new Error("question should be exempt in pressure")
+const askTail = gateMessage(3, 2, "read", "ask")
+const pressureTail = gateMessage(3, 2, "read", "pressure")
+if (!askTail.includes("budget extension via the question tool")) throw new Error("ask tail wrong")
+if (!pressureTail.includes("No further tool calls") || pressureTail.includes("budget extension")) throw new Error("pressure tail wrong")
+if (ALLOW_OVER_BUDGET.size !== 2 || !ALLOW_OVER_BUDGET.has("budget_extend") || !ALLOW_OVER_BUDGET.has("question")) throw new Error("allowlist not exact")
 
 console.log("ALL CHECKS PASSED")

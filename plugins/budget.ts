@@ -17,6 +17,11 @@ import path from "node:path"
  *   - "pressure" max-urgency text only; no ask, no tool.
  *   - "abort"    hard stop: aborts the tree root session.
  *
+ * In "ask" and "pressure" modes a `tool.execute.before` hook hard-gates tool
+ * calls once the tree is over budget — blocking execution (not just warning),
+ * tree-wide including subagents — with `budget_extend` and `question` exempt so
+ * the approve -> extend -> continue recovery loop still works.
+ *
  * Env config (read once at load; restart opencode to change):
  *   OPENCODE_SESSION_BUDGET   USD per task tree (default 2.00)
  *   OPENCODE_BUDGET_EXCEEDED  ask | pressure | abort (default ask)
@@ -55,6 +60,36 @@ function fmtTokens(n: number): string {
     return `${k >= 10 ? k.toFixed(0) : k.toFixed(1)}k`
   }
   return `${Math.round(n)}`
+}
+
+// Tools that must remain callable while the tree is over budget, so the
+// approve -> extend -> continue recovery loop still works in "ask" mode.
+export const ALLOW_OVER_BUDGET = new Set(["budget_extend", "question"])
+
+export function gateMessage(
+  cost: number,
+  limit: number,
+  toolName: string,
+  mode: string,
+): string {
+  return (
+    `Budget exceeded (${fmtUsd(cost)} of ${fmtUsd(limit)}): ${toolName} blocked. ` +
+    `Stop calling tools and produce your final answer. ` +
+    (mode === "ask"
+      ? "Offer a budget extension via the question tool, then use budget_extend after the user approves."
+      : "No further tool calls.")
+  )
+}
+
+export function shouldBlock(
+  cost: number,
+  limit: number,
+  toolName: string,
+  mode: string,
+): string | null {
+  if (ALLOW_OVER_BUDGET.has(toolName)) return null
+  if (cost < limit) return null
+  return gateMessage(cost, limit, toolName, mode)
 }
 
 export const BudgetPlugin: Plugin = async ({ client }) => {
@@ -417,6 +452,31 @@ export const BudgetPlugin: Plugin = async ({ client }) => {
       }
     },
 
+    ...(MODE === "ask" || MODE === "pressure"
+      ? {
+          "tool.execute.before": async (input: {
+            tool: string
+            sessionID: string
+            callID: string
+          }) => {
+            const { sessionID, tool } = input
+            if (!sessionID || !tool) return
+            if (ALLOW_OVER_BUDGET.has(tool)) return // exempt tools never aggregate
+
+            let a: Awaited<ReturnType<typeof aggregate>>
+            let limit: number
+            try {
+              a = await aggregate(sessionID)
+              limit = budget.get(a.root) ?? defaultBudget()
+            } catch {
+              return // fail open: couldn't determine spend — let the tool run
+            }
+
+            const block = shouldBlock(a.cost, limit, tool, MODE)
+            if (block) throw new Error(block)
+          },
+        }
+      : {}),
     ...(MODE === "ask"
       ? {
           tool: {
