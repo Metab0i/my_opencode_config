@@ -1,5 +1,6 @@
 // Verifies OPENCODE_BUDGET_EXCEEDED modes + OPENCODE_BUDGET_PLUGIN=off (fresh process per mode).
-// Run: OPENCODE_BUDGET_EXCEEDED=abort node --experimental-strip-types ~/.config/opencode/tests/budget/mode-test.mjs
+// Run: OPENCODE_BUDGET_STATE_FILE=/tmp/opencode/bt-state.json \
+//        OPENCODE_BUDGET_EXCEEDED=abort node --experimental-strip-types ~/.config/opencode/tests/budget/mode-test.mjs
 import { BudgetPlugin } from "../../plugins/budget.ts"
 
 const client = {

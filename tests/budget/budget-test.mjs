@@ -1,5 +1,6 @@
 // Functional verification harness for the budget plugin (mock client, no live opencode).
-// Run: node --experimental-strip-types ~/.config/opencode/tests/budget/budget-test.mjs
+// Run: OPENCODE_BUDGET_STATE_FILE=/tmp/opencode/bt-state.json \
+//        node --experimental-strip-types ~/.config/opencode/tests/budget/budget-test.mjs
 import { BudgetPlugin } from "../../plugins/budget.ts"
 
 const sessions = {

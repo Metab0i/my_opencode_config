@@ -1,4 +1,7 @@
 import { tool, type Plugin } from "@opencode-ai/plugin"
+import { promises as fs, mkdirSync, writeFileSync, renameSync } from "node:fs"
+import os from "node:os"
+import path from "node:path"
 
 /**
  * Session-budget awareness plugin.
@@ -19,6 +22,8 @@ import { tool, type Plugin } from "@opencode-ai/plugin"
  *   OPENCODE_BUDGET_EXCEEDED  ask | pressure | abort (default ask)
  *   OPENCODE_BUDGET_PLUGIN    "off" to disable entirely
  *   OPENCODE_BUDGET_TEMPLATE  optional full override of the block text
+ *   OPENCODE_BUDGET_STATE_FILE path to persisted overrides (default
+ *                              ~/.local/share/opencode/budget-overrides.json)
  */
 
 type Spend = { cost: number; input: number; output: number; reasoning: number }
@@ -30,6 +35,9 @@ const MODE = process.env.OPENCODE_BUDGET_EXCEEDED === "abort"
     ? "pressure"
     : "ask"
 const TEMPLATE = process.env.OPENCODE_BUDGET_TEMPLATE
+const STATE_FILE =
+  process.env.OPENCODE_BUDGET_STATE_FILE ??
+  path.join(os.homedir(), ".local", "share", "opencode", "budget-overrides.json")
 
 function defaultBudget(): number {
   const raw = parseFloat(process.env.OPENCODE_SESSION_BUDGET ?? "2")
@@ -55,11 +63,116 @@ export const BudgetPlugin: Plugin = async ({ client }) => {
   const spend = new Map<string, Spend>()                       // sessionID -> live totals
   const msg = new Map<string, { sid: string; cost: number; input: number; output: number; reasoning: number }>()
   const parent = new Map<string, string | null>()              // sessionID -> parentID (null = root)
-  const budget = new Map<string, number>()                     // treeRootID -> extended budget
+  const budget = new Map<string, number>()                     // rootSessionID -> extended budget
   const aborted = new Set<string>()                            // roots aborted in "abort" mode
   const treeCache = new Map<string, string[]>()                // root -> sessionIDs in tree
   const hydrated = new Set<string>()                           // sessions with known spend
   const createdLive = new Set<string>()                        // sessions created after plugin load
+
+  // ---- Persistence of extended budgets (sidecar state file) ----
+  const updatedAt = new Map<string, number>()                  // rootSessionID -> last extension time
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+  let dirty = false                                            // pending unsaved changes
+
+  function snapshot(): string {
+    const trees: Record<string, { budget: number; updatedAt: number }> = {}
+    for (const [root, b] of budget) {
+      trees[root] = { budget: b, updatedAt: updatedAt.get(root) ?? Date.now() }
+    }
+    return JSON.stringify({ version: 1, trees }, null, 2)
+  }
+
+  function writeStateSync(): void {
+    try {
+      mkdirSync(path.dirname(STATE_FILE), { recursive: true })
+      writeFileSync(`${STATE_FILE}.tmp`, snapshot(), "utf8")
+      renameSync(`${STATE_FILE}.tmp`, STATE_FILE)
+      dirty = false
+    } catch {
+      // best-effort; leave dirty so a later flush can retry
+    }
+  }
+
+  async function writeState(): Promise<void> {
+    try {
+      await fs.mkdir(path.dirname(STATE_FILE), { recursive: true })
+      await fs.writeFile(`${STATE_FILE}.tmp`, snapshot(), "utf8")
+      await fs.rename(`${STATE_FILE}.tmp`, STATE_FILE)
+      dirty = false
+    } catch {
+      // best-effort
+    }
+  }
+
+  function scheduleSave(immediate: boolean): void {
+    dirty = true
+    if (immediate) {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+      writeStateSync() // user-initiated: must be durable before the tool returns
+      return
+    }
+    if (saveTimer) return
+    saveTimer = setTimeout(() => { saveTimer = null; void writeState() }, 1000)
+  }
+
+  function isNotFoundSignal(e: any): boolean {
+    if (e == null) return false
+    const status = e?.status ?? e?.statusCode ?? e?.response?.status
+    if (status === 404 || status === 410) return true
+    const text = `${e?.code ?? ""} ${e?.message ?? ""}`
+    return /not.?found|enoent|404/i.test(text)
+  }
+
+  async function isGone(id: string): Promise<boolean> {
+    try {
+      const res = (await client.session.get({ path: { id } })) as any
+      const data = res?.data
+      if (data && data.id) return false                      // exists -> keep
+      return isNotFoundSignal(res?.error ?? res)             // no data -> maybe gone
+    } catch (e) {
+      return isNotFoundSignal(e)                              // thrown -> 404 only
+    }
+  }
+
+  async function loadOverrides(): Promise<void> {
+    let state: any = {}
+    let corrupt = false
+    try {
+      const raw = await fs.readFile(STATE_FILE, "utf8")
+      state = JSON.parse(raw)
+    } catch (e: any) {
+      if (e && (e.code === "ENOENT" || e.code === "ENOTDIR")) return // missing -> fresh
+      corrupt = true
+    }
+
+    if (corrupt) {
+      try { await fs.rename(STATE_FILE, `${STATE_FILE}.corrupt-${Date.now()}`) } catch { /* ignore */ }
+      return
+    }
+
+    const trees = state?.trees
+    if (!trees || typeof trees !== "object" || Array.isArray(trees)) return
+
+    for (const [root, entry] of Object.entries(trees)) {
+      const b = (entry as any)?.budget
+      if (typeof b === "number" && Number.isFinite(b) && b > 0 && !budget.has(root)) {
+        budget.set(root, b)
+        const t = (entry as any)?.updatedAt
+        updatedAt.set(root, typeof t === "number" ? t : Date.now())
+      }
+    }
+
+    // Reconcile: prune only definitively-gone roots; keep on transient errors.
+    let changed = false
+    for (const root of [...budget.keys()]) {
+      if (await isGone(root)) {
+        budget.delete(root)
+        updatedAt.delete(root)
+        changed = true
+      }
+    }
+    if (changed) await writeState()
+  }
 
   async function ensureSession(id: string): Promise<void> {
     if (hydrated.has(id)) return
@@ -200,6 +313,13 @@ export const BudgetPlugin: Plugin = async ({ client }) => {
       .replaceAll("{tokens_out}", fmtTokens(a.output))
   }
 
+  void loadOverrides()
+  process.on("exit", () => {
+    if (!dirty) return
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+    try { writeStateSync() } catch { /* ignore */ }
+  })
+
   return {
     event: async ({ event }) => {
       try {
@@ -258,7 +378,10 @@ export const BudgetPlugin: Plugin = async ({ client }) => {
             hydrated.delete(id)
             createdLive.delete(id)
             parent.delete(id)
+            const hadOverride = budget.has(id)
             budget.delete(id)
+            updatedAt.delete(id)
+            if (hadOverride) scheduleSave(false)
             for (const [mid, m] of msg) {
               if (m.sid === id) msg.delete(mid)
             }
@@ -315,6 +438,8 @@ export const BudgetPlugin: Plugin = async ({ client }) => {
                     return `New budget ${fmtUsd(next)} is not greater than the current ${fmtUsd(current)}; the extension must increase the budget.`
                   }
                   budget.set(a.root, next)
+                  updatedAt.set(a.root, Date.now())
+                  scheduleSave(true)
                   return `Budget extended to ${fmtUsd(next)} for this task tree. Remaining: ${fmtUsd(Math.max(0, next - a.cost))}.`
                 } catch (e) {
                   return `Failed to extend budget: ${String(e)}`
