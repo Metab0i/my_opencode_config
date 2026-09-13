@@ -14,10 +14,9 @@
         "read": "allow",
         "glob": "allow",
         "grep": "allow",
-	"write": {"*": "deny", "/tmp/**": "allow" },
         "list": "allow",
         "webfetch": "allow",
-        "edit": { "*": "deny", "/tmp/**": "allow" },
+        "edit": { "*": "deny", "tmp/**": "allow" },
         "bash": "deny",
         "task": { "*": "deny", "scout": "allow", "validator": "allow" },
         "question": "allow",
@@ -40,7 +39,7 @@
         "webfetch": "allow",
         "edit": "deny",
         "bash": {
-          "*": "ask",
+          "*": "ask"
         },
         "task": "deny",
         "question": "allow",
@@ -108,7 +107,7 @@
         "list": "allow",
         "webfetch": "allow",
         "session_id": "allow",
-        "edit": { "*": "deny", "/tmp/**": "allow" },
+        "edit": { "*": "deny", "tmp/**": "allow" },
         "bash": "ask",
         "task": "deny",
         "external_directory": { "/tmp/**": "allow" }
