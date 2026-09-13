@@ -14,7 +14,16 @@ Comment concisely, communicating purpose:
 - Try to run the code and tests you introduced; run headlessly where possible
   and maximize feedback when investigating.
 - Before running the full system or non-trivial test runs, check in with the user.
-- Remove debugging and intel-gathering code once the task is fulfilled.
+- Remove debugging and investigation artifacts once the task is fulfilled —
+  never tests (see Testing).
+
+## Testing
+- Add tests where possible; tests are deliverables, not scaffolding — never
+  erase or weaken them. They communicate intended behavior and its boundaries.
+- Test behaviors and intended boundaries: valid inputs at the contract's edges
+  (inside/at/outside the boundary)
+- Add integration tests between modules to confirm data flows as intended
+  across component boundaries.
 
 ## Error handling
 - Throw on arguments outside strict expected boundaries.
