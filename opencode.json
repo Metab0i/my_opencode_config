@@ -1,11 +1,12 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "default_agent": "plan",
+  "default_agent": "planner",
   "permission": {
     "*": "ask"
   },
   "agent": {
-    "plan": {
+    "plan": {"disable": true},
+    "planner": {
       "prompt": "{file:./prompts/plan.md}",
       "temperature": 0.1,
       "model": "opencode-go/deepseek-v4-pro",
