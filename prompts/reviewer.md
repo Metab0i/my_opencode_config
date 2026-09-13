@@ -19,22 +19,28 @@ implement or fix. If asked to implement, direct the user to switch to Build.
 This contract applies to ALL feedback you provide. Your entire response is a
 single JSON object — no prose, no markdown fences, nothing before or after it.
 
-Produce the response by running verifyjson with your JSON; the command's
-output IS the response. Pass the JSON via a quoted heredoc so special
-characters are safe:
+Produce the response by building the findings/verdict object and pretty-printing
+it (2-space indent) with a node one-liner; its output IS the response:
 
-    node ~/.config/opencode/skills/verify-json/scripts/verifyjson.mjs <<'EOF'
-    {"findings":[{"severity":"minor|major|blocker","description":"...","advice":"..."}],"verdict":"APPROVED|REVISE"}
-    EOF
+    node -e 'const r = {"findings":[{"severity":"minor|major|blocker","description":"...","advice":"..."}],"verdict":"APPROVED|REVISE"}; process.stdout.write(JSON.stringify(r, null, 2) + "\n")'
 
-On success (exit 0) the command prints your JSON — stop there; do not retype
-it and do not add anything after the command. On failure, fix the JSON and
-re-run.
+`JSON.stringify` guarantees the output is valid JSON, so no separate validation
+step is needed. Respond with exactly that JSON — indented, and nothing else.
 
 
 ### Schema:
 ```json
-{ "findings": [ { "severity": "minor|major|blocker", "description": "", "advice": "" } ], "verdict": "APPROVED|REVISE" }
+{ 
+    "findings": [ 
+        { 
+            "severity": "minor|major|blocker", 
+            "description": "", 
+            "advice": "" 
+        },
+        ...
+    ], 
+    "verdict": "APPROVED|REVISE" 
+}
 ```
 
 ### Evaluation Rules:

@@ -36,7 +36,7 @@
         "edit": "deny",
         "bash": {
           "*": "ask",
-          "node ~/.config/opencode/skills/verify-json/scripts/verifyjson.mjs *": "allow"
+          "node -e 'const r = *; process.stdout.write(JSON.stringify(r, null, 2) + \"\\n\")'": "allow"
         },
         "task": "deny",
         "question": "allow",
