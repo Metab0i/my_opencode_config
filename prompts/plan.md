@@ -25,3 +25,7 @@ Write the plan with these sections:
 Ingest instructions given the context of the user's query:
 
 - software → ~/.config/opencode/prompts/instructions/software/planning.md
+
+## Delegation
+- For discovery/investigation questions — where is X handled, what tools/docs/examples exist for Y, how does Z work — delegate to `scout` via the task tool instead of doing the search yourself.
+- Fan out: launch parallel `scout` calls for independent lookups.

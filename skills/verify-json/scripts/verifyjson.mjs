@@ -14,8 +14,8 @@
  * a file exists at that path, otherwise as an inline JSON string.
  *
  * Output:
- *   Valid   → "verifyjson: valid JSON" followed by the prettified JSON,
- *             2-space indented, keys in original order.
+ *   Valid   → the prettified JSON (2-space indented, keys in original
+ *             order) on stdout; validity is signaled by exit code 0.
  *   Invalid → "verifyjson: INVALID JSON" (with line/column when the parser
  *             reports a position) followed by the parse error, on stderr.
  *   Usage   → "verifyjson: <problem>" + usage line, on stderr.
@@ -78,4 +78,4 @@ try {
   process.exit(1);
 }
 
-process.stdout.write(`verifyjson: valid JSON\n${JSON.stringify(parsed, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify(parsed, null, 2)}\n`);
