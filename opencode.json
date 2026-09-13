@@ -20,6 +20,7 @@
         "task": "allow",
         "question": "allow",
         "plan_path": "allow",
+        "session_id": "allow",
         "external_directory": { "/tmp/**": "allow" }
       }
     },
@@ -43,6 +44,7 @@
         "task": "deny",
         "question": "allow",
         "skill": "allow",
+        "session_id": "allow",
         "external_directory": { "/tmp/**": "allow" }
       }
     },
@@ -61,6 +63,7 @@
         "task": "deny",
         "question": "allow",
         "plan_path": "allow",
+        "session_id": "allow",
         "external_directory": { "/tmp/**": "allow" }
       }
     },
@@ -78,6 +81,7 @@
         "list": "allow",
         "webfetch": "allow",
         "websearch": "allow",
+        "session_id": "allow",
         "edit": "deny",
         "bash": {
           "*": "deny",
@@ -86,6 +90,25 @@
           "git diff*": "allow",
           "git blame*": "allow"
         },
+        "task": "deny",
+        "external_directory": { "/tmp/**": "allow" }
+      }
+    },
+    "validator": {
+      "mode": "subagent",
+      "description": "Empirically tests a hypothesis by building and running the smallest prototype that confirms or denies it; used by the planner to prove rather than assert.",
+      "prompt": "{file:./prompts/validator.md}",
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "temperature": 0.1,
+      "permission": {
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "session_id": "allow",
+        "edit": { "*": "deny", "/tmp/**": "allow" },
+        "bash": "ask",
         "task": "deny",
         "external_directory": { "/tmp/**": "allow" }
       }

@@ -27,5 +27,14 @@ Ingest instructions given the context of the user's query:
 - software → ~/.config/opencode/prompts/instructions/software/planning.md
 
 ## Delegation
-- For discovery/investigation questions — where is X handled, what tools/docs/examples exist for Y, how does Z work — delegate to `scout` via the task tool instead of doing the search yourself.
-- Fan out: launch parallel `scout` calls for independent lookups.
+- Delegate to `Scount` for discovery/investigation questions, such as:
+    - Where is something handled, 
+    - What tools/docs/examples exist that are relvant to user's query, 
+    - How does something work
+- Delegate to `Validator` for empirical questions or hypotheses about how something behaves:
+    - To confirm or deny an assumption, 
+    - To test a hypothesis
+    - Clarify an ambiguity, 
+    - Raise/lower confidence in a claim. 
+    - It proves rather than asserts
+- Fan out: launch parallel sub-agents for independent work.
