@@ -8,6 +8,7 @@
     "plan": {
       "prompt": "{file:./prompts/plan.md}",
       "temperature": 0.1,
+      "model": "opencode-go/minimax-m3",
       "permission": {
         "read": "allow",
         "glob": "allow",
@@ -25,6 +26,7 @@
     "reviewer": {
       "prompt": "{file:./prompts/reviewer.md}",
       "color": "#fb2b80",
+      "model": "opencode-go/glm-5.3",
       "mode": "primary",
       "temperature": 0.1,
       "permission": {
@@ -47,6 +49,7 @@
     "build": {
       "prompt": "{file:./prompts/build.md}",
       "color": "#2bfbda",
+      "model": "opencode-go/deepseek-v4.1-flash",
       "permission": {
         "read": "allow",
         "glob": "allow",

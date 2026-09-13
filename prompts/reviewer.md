@@ -17,13 +17,14 @@ implement or fix. If asked to implement, direct the user to switch to Build.
 
 ## Response contract
 This contract applies to ALL feedback you provide. Your entire response is a
-single markdown table — no prose, no code fences, nothing before or after it.
+single markdown table — no prose, no code fences, nothing before or after it except for Verdict.
 
 ```
 | Severity | Finding | Advice |
 |---|---|---|
 | minor | ... | ... |
-| **Verdict: APPROVED** | | |
+
+**Verdict: APPROVED | REVISE**
 ```
 
 - When nothing is wrong, the body is a single `| No findings | | |` row
