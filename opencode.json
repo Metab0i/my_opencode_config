@@ -16,7 +16,7 @@
         "webfetch": "allow",
         "edit": { "*": "ask", "/tmp/**": "allow" },
         "bash": "ask",
-        "task": "deny",
+        "task": "allow",
         "question": "allow",
         "plan_path": "allow",
         "external_directory": { "/tmp/**": "allow" }
@@ -24,6 +24,7 @@
     },
     "reviewer": {
       "prompt": "{file:./prompts/reviewer.md}",
+      "color": "#fb2b80",
       "mode": "primary",
       "temperature": 0.1,
       "permission": {
@@ -45,6 +46,7 @@
     },
     "build": {
       "prompt": "{file:./prompts/build.md}",
+      "color": "#2bfbda",
       "permission": {
         "read": "allow",
         "glob": "allow",
@@ -56,6 +58,32 @@
         "task": "deny",
         "question": "allow",
         "plan_path": "allow",
+        "external_directory": { "/tmp/**": "allow" }
+      }
+    },
+    "scout": {
+      "mode": "subagent",
+      "description": "Fast read-only discovery and investigation agent for what/where/how/which questions — where things live, what they do, what tools/docs/examples exist, how they're used — answered from the workspace and the web with cited evidence.",
+      "prompt": "{file:./prompts/scout.md}",
+      "model": "opencode-go/qwen3.8-flash",
+      "temperature": 0.1,
+      "permission": {
+        "*": "deny",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "webfetch": "allow",
+        "websearch": "allow",
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "git log*": "allow",
+          "git show*": "allow",
+          "git diff*": "allow",
+          "git blame*": "allow"
+        },
+        "task": "deny",
         "external_directory": { "/tmp/**": "allow" }
       }
     }
