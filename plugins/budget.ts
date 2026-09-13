@@ -19,8 +19,12 @@ import path from "node:path"
  *
  * In "ask" and "pressure" modes a `tool.execute.before` hook hard-gates tool
  * calls once the tree is over budget — blocking execution (not just warning),
- * tree-wide including subagents — with `budget_extend` and `question` exempt so
- * the approve -> extend -> continue recovery loop still works.
+ * tree-wide including subagents — with `budget_extend`, `question`, and
+ * `budget_status` exempt so the approve -> extend -> continue recovery loop
+ * still works.
+ *
+ * Exposes a `budget_status` tool in every mode: report the tree's spend, limit,
+ * remaining, and mode on demand (e.g. when the user asks "what's my budget?").
  *
  * Env config (read once at load; restart opencode to change):
  *   OPENCODE_SESSION_BUDGET   USD per task tree (default 2.00)
@@ -64,7 +68,7 @@ function fmtTokens(n: number): string {
 
 // Tools that must remain callable while the tree is over budget, so the
 // approve -> extend -> continue recovery loop still works in "ask" mode.
-export const ALLOW_OVER_BUDGET = new Set(["budget_extend", "question"])
+export const ALLOW_OVER_BUDGET = new Set(["budget_extend", "question", "budget_status"])
 
 export function gateMessage(
   cost: number,
@@ -477,9 +481,31 @@ export const BudgetPlugin: Plugin = async ({ client }) => {
           },
         }
       : {}),
-    ...(MODE === "ask"
-      ? {
-          tool: {
+    tool: {
+      budget_status: tool({
+        description:
+          "Report the current budget status for this task tree: total spend, budget limit, remaining, and mode. Call this whenever the user asks about the current budget.",
+        args: {},
+        async execute(_args, ctx) {
+          try {
+            const a = await aggregate(ctx.sessionID)
+            const limit = budget.get(a.root) ?? defaultBudget()
+            const pct = limit > 0 ? Math.round((a.cost / limit) * 100) : 0
+            const remaining = Math.max(0, limit - a.cost)
+            const lines = [
+              `Task spend: ${fmtUsd(a.cost)} / ${fmtUsd(limit)} (${pct}%). Remaining: ${fmtUsd(remaining)}. Mode: ${MODE}.`,
+            ]
+            if (a.own !== undefined && a.own.cost !== a.cost) {
+              lines.push(`Your session's spend: ${fmtUsd(a.own.cost)}.`)
+            }
+            return lines.join("\n")
+          } catch (e) {
+            return `Failed to read budget status: ${String(e)}`
+          }
+        },
+      }),
+      ...(MODE === "ask"
+        ? {
             budget_extend: tool({
               description:
                 "Set a new total budget (USD) for this task tree. Only call after the user has explicitly approved continuing past the budget limit and specified the new total budget.",
@@ -506,9 +532,9 @@ export const BudgetPlugin: Plugin = async ({ client }) => {
                 }
               },
             }),
-          },
-        }
-      : {}),
+          }
+        : {}),
+    },
   }
 }
 

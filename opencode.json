@@ -16,7 +16,7 @@
         "grep": "allow",
         "list": "allow",
         "webfetch": "allow",
-        "edit": { "*": "ask", "/tmp/**": "allow" },
+        "edit": { "*": "deny", "/tmp/**": "allow" },
         "bash": "ask",
         "task": "allow",
         "question": "allow",

@@ -108,6 +108,17 @@ const askTail = gateMessage(3, 2, "read", "ask")
 const pressureTail = gateMessage(3, 2, "read", "pressure")
 if (!askTail.includes("budget extension via the question tool")) throw new Error("ask tail wrong")
 if (!pressureTail.includes("No further tool calls") || pressureTail.includes("budget extension")) throw new Error("pressure tail wrong")
-if (ALLOW_OVER_BUDGET.size !== 2 || !ALLOW_OVER_BUDGET.has("budget_extend") || !ALLOW_OVER_BUDGET.has("question")) throw new Error("allowlist not exact")
+if (ALLOW_OVER_BUDGET.size !== 3 || !ALLOW_OVER_BUDGET.has("budget_extend") || !ALLOW_OVER_BUDGET.has("question") || !ALLOW_OVER_BUDGET.has("budget_status")) throw new Error("allowlist not exact")
+
+// 10. budget_status: reports spend/limit/remaining/mode, callable over budget
+const status = await plugin.tool.budget_status.execute({}, { sessionID: "root" })
+console.log("STATUS:\n" + status + "\n")
+if (!status.includes("Task spend: $3.73 / $3.50 (107%)")) throw new Error("status spend/limit/pct wrong: " + status)
+if (!status.includes("Remaining: $0.00")) throw new Error("status remaining wrong: " + status)
+if (!status.includes("Mode: ask")) throw new Error("status mode wrong: " + status)
+if (!status.includes("Your session's spend: $3.65")) throw new Error("status own-spend missing: " + status)
+
+// 11. gate: budget_status is exempt over budget
+await plugin["tool.execute.before"]({ tool: "budget_status", sessionID: "root", callID: "c5" })
 
 console.log("ALL CHECKS PASSED")
