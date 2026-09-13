@@ -68,9 +68,14 @@ function fmtTokens(n: number): string {
 
 // Tools that must remain callable while the tree is over budget, so the
 // approve -> extend -> continue recovery loop still works in "ask" mode.
-export const ALLOW_OVER_BUDGET = new Set(["budget_extend", "question", "budget_status"])
+//
+// NOTE: these helpers are intentionally NOT exported. opencode's plugin loader
+// (getLegacyPlugins) treats every module export as a plugin factory; a
+// non-function export throws "Plugin export is not a function" and a function
+// helper would be misinvoked as a factory — either silently kills the plugin.
+const ALLOW_OVER_BUDGET = new Set(["budget_extend", "question", "budget_status"])
 
-export function gateMessage(
+function gateMessage(
   cost: number,
   limit: number,
   toolName: string,
@@ -85,7 +90,7 @@ export function gateMessage(
   )
 }
 
-export function shouldBlock(
+function shouldBlock(
   cost: number,
   limit: number,
   toolName: string,
